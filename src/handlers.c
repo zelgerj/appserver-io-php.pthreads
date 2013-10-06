@@ -53,7 +53,7 @@ HashTable* pthreads_read_debug(PTHREADS_READ_DEBUG_PASSTHRU_D) {
 	zend_hash_init(table, 8, NULL, ZVAL_PTR_DTOR, 0);
 	*is_temp = 1;
 	pthreads_store_tohash(
-		(PTHREADS_FETCH_FROM(object))->store,
+		P_STORE(PTHREADS_FETCH_FROM(object)),
 		table TSRMLS_CC
 	);
 	return table;
@@ -68,7 +68,7 @@ HashTable* pthreads_read_properties(PTHREADS_READ_PROPERTIES_PASSTHRU_D) {
 #endif
 		{
 			pthreads_store_tohash(
-				pobject->store, 
+				P_STORE(pobject), 
 				pobject->std.properties TSRMLS_CC
 			);
 		}
@@ -96,7 +96,7 @@ zval * pthreads_read_property (PTHREADS_READ_PROPERTY_PASSTHRU_D) {
 	}
 	
 	if (Z_TYPE_P(member)==IS_STRING) {
-		pthreads_store_read(pthreads->store, Z_STRVAL_P(member), Z_STRLEN_P(member), &value TSRMLS_CC);
+		pthreads_store_read(P_STORE(pthreads), Z_STRVAL_P(member), Z_STRLEN_P(member), &value TSRMLS_CC);
 	} else {
 		zend_error(E_WARNING, "pthreads detected an attempt to use an unsupported kind of key in %s", Z_OBJCE_P(object)->name);
 		if (value != NULL) {
@@ -128,7 +128,7 @@ void pthreads_write_property(PTHREADS_WRITE_PROPERTY_PASSTHRU_D) {
 	    /* for anonymous members, 
 	        we acquire the lock and increment a counter
 	        we do not store any additional information or perform any lookups */
-		pthreads_lock_acquire(pthreads->store->lock, &locked TSRMLS_CC);
+		pthreads_lock_acquire(P_STORE(pthreads)->lock, &locked TSRMLS_CC);
 		{
 			if (member == NULL) {
 			    MAKE_STD_ZVAL(member);
@@ -136,9 +136,9 @@ void pthreads_write_property(PTHREADS_WRITE_PROPERTY_PASSTHRU_D) {
 			    nulled = 1;
 			}
 			
-			ZVAL_LONG(member, pthreads->store->next++);
+			ZVAL_LONG(member, P_STORE(pthreads)->next++);
 		}
-		pthreads_lock_release(pthreads->store->lock, locked TSRMLS_CC);
+		pthreads_lock_release(P_STORE(pthreads)->lock, locked TSRMLS_CC);
 	}
 
 	if (Z_TYPE_P(member) != IS_STRING) {
@@ -167,7 +167,7 @@ void pthreads_write_property(PTHREADS_WRITE_PROPERTY_PASSTHRU_D) {
 			case IS_DOUBLE:
 			case IS_RESOURCE:
 			case IS_BOOL: {
-				if (pthreads_store_write(pthreads->store, Z_STRVAL_P(member), Z_STRLEN_P(member), &value TSRMLS_CC)!=SUCCESS){
+				if (pthreads_store_write(P_STORE(pthreads), Z_STRVAL_P(member), Z_STRLEN_P(member), &value TSRMLS_CC)!=SUCCESS){
 					zend_error(
 						E_WARNING, 
 						"pthreads failed to write member %s::$%s", 
@@ -220,7 +220,7 @@ int pthreads_has_property(PTHREADS_HAS_PROPERTY_PASSTHRU_D) {
 	}
 
 	if (Z_TYPE_P(member) == IS_STRING) {
-		isset = pthreads_store_isset(pthreads->store, Z_STRVAL_P(member), Z_STRLEN_P(member), has_set_exists TSRMLS_CC);
+		isset = pthreads_store_isset(P_STORE(pthreads), Z_STRVAL_P(member), Z_STRLEN_P(member), has_set_exists TSRMLS_CC);
 	} else zend_error(E_WARNING, "pthreads has detected an attempt to use an unsupported kind of key in %s", Z_OBJCE_P(object)->name);
 
 	if (mstring != NULL) {
@@ -252,7 +252,7 @@ void pthreads_unset_property(PTHREADS_UNSET_PROPERTY_PASSTHRU_D) {
 	}
 
 	if (Z_TYPE_P(member) == IS_STRING) {
-		if (pthreads_store_delete(pthreads->store, Z_STRVAL_P(member), Z_STRLEN_P(member) TSRMLS_CC)!=SUCCESS){
+		if (pthreads_store_delete(P_STORE(pthreads), Z_STRVAL_P(member), Z_STRLEN_P(member) TSRMLS_CC)!=SUCCESS){
 			zend_error(
 				E_WARNING, 
 				"pthreads has experienced an internal error while deleting %s::$%s", 
@@ -278,7 +278,7 @@ zend_function * pthreads_get_method(PTHREADS_GET_METHOD_PASSTHRU_D) {
 	PTHREAD thread = PTHREADS_FETCH_FROM(*pobject);
 	
 	if (thread) {
-		switch((access=pthreads_modifiers_get(thread->modifiers, method TSRMLS_CC))){
+		switch((access=pthreads_modifiers_get(P_MODIFIERS(thread), method TSRMLS_CC))){
 			case ZEND_ACC_PRIVATE:
 			case ZEND_ACC_PROTECTED:
 				scope = Z_OBJCE_PP(pobject);
@@ -324,7 +324,7 @@ int pthreads_call_method(PTHREADS_CALL_METHOD_PASSTHRU_D) {
 	if (getThis()) {
 		PTHREAD thread = PTHREADS_FETCH;
 		if (thread) {
-			switch((access=pthreads_modifiers_get(thread->modifiers, method TSRMLS_CC))){
+			switch((access=pthreads_modifiers_get(P_MODIFIERS(thread), method TSRMLS_CC))){
 				case ZEND_ACC_PRIVATE:
 				case ZEND_ACC_PROTECTED: {
 					scope = Z_OBJCE_P(getThis());
@@ -363,7 +363,7 @@ int pthreads_call_method(PTHREADS_CALL_METHOD_PASSTHRU_D) {
 							* Make protected method call
 							*/
 							{
-								if (access != ZEND_ACC_PROTECTED || pthreads_modifiers_protect(thread->modifiers, method, &unprotect TSRMLS_CC)) {
+								if (access != ZEND_ACC_PROTECTED || pthreads_modifiers_protect(P_MODIFIERS(thread), method, &unprotect TSRMLS_CC)) {
 								
 									ZVAL_STRINGL(&zmethod, method, strlen(method), 0);
 									
@@ -415,7 +415,7 @@ int pthreads_call_method(PTHREADS_CALL_METHOD_PASSTHRU_D) {
 									}
 									
 									if (access == ZEND_ACC_PROTECTED) {
-										pthreads_modifiers_unprotect(thread->modifiers, method, unprotect TSRMLS_CC);
+										pthreads_modifiers_unprotect(P_MODIFIERS(thread), method, unprotect TSRMLS_CC);
 									}
 								} else {
 									zend_error(
@@ -466,7 +466,7 @@ int pthreads_cast_object(PTHREADS_CAST_PASSTHRU_D) {
     switch (type) {
         case IS_ARRAY: {
             pthreads_store_tohash(
-                (PTHREADS_FETCH_FROM(from))->store, Z_ARRVAL_P(to) TSRMLS_CC
+                P_STORE(PTHREADS_FETCH_FROM(from)), Z_ARRVAL_P(to) TSRMLS_CC
             );
             return SUCCESS;
         } break;

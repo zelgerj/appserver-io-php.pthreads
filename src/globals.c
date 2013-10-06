@@ -72,16 +72,16 @@ void pthreads_globals_unlock(zend_bool locked TSRMLS_DC) {
 /* {{{ pthreads_global_string */
 char *pthreads_global_string(char *strkey, zend_uint keylen, zend_bool lower TSRMLS_DC) {   
     char **created = NULL;
-    
+
     if (zend_hash_find(&PTHREADS_G(strings), strkey, keylen, (void**)&created) != SUCCESS) {
         char *creating = malloc(keylen+1);
-        
+
         if (creating) {
             if (lower) {
                 zend_str_tolower_copy(
                     creating, strkey, keylen);
             } else strcpy(creating, strkey);
-            
+
             zend_hash_update(
                 &PTHREADS_G(strings), strkey, keylen, (void**)&creating, sizeof(void*), NULL);
                 

@@ -83,7 +83,7 @@ zend_bool pthreads_store_lock(zval *this_ptr TSRMLS_DC) {
 	PTHREAD pobject = PTHREADS_FETCH_FROM(getThis());
 	if (pobject) {
 		return pthreads_lock_acquire(
-			pobject->store->lock,
+			P_STORE(pobject)->lock,
 			&pobject->hold TSRMLS_CC
 		);
 	} else return 0;
@@ -94,7 +94,7 @@ zend_bool pthreads_store_unlock(zval *this_ptr TSRMLS_DC) {
 	PTHREAD pobject = PTHREADS_FETCH_FROM(getThis());
 	if (pobject) {
 		return pthreads_lock_release(
-			pobject->store->lock,
+			P_STORE(pobject)->lock,
 			pobject->hold TSRMLS_CC
 		);
 	} else return 0;
@@ -213,7 +213,7 @@ int pthreads_store_count(zval *object, long *count TSRMLS_DC) {
     zend_bool locked;
     if (pthreads_store_lock(object TSRMLS_CC)) {
         (*count) = zend_hash_num_elements(
-            &pthreads->store->table);
+            &P_STORE(pthreads)->table);
         pthreads_store_unlock(object TSRMLS_CC);
     } else (*count) = 0L;
    } else (*count) = 0L;
@@ -229,7 +229,7 @@ int pthreads_store_shift(zval *object, zval **member TSRMLS_DC) {
     if (pthreads_store_lock(object TSRMLS_CC)) {
         pthreads_storage *storage;
         HashPosition position;
-        HashTable *table = &pthreads->store->table;
+        HashTable *table = &P_STORE(pthreads)->table;
         
         zend_hash_internal_pointer_reset_ex(table, &position);
         
@@ -264,7 +264,7 @@ int pthreads_store_chunk(zval *object, long size, zend_bool preserve, zval **chu
     if (pthreads_store_lock(object TSRMLS_CC)) {
         pthreads_storage *storage;
         HashPosition position;
-        HashTable *table = &pthreads->store->table;
+        HashTable *table = &P_STORE(pthreads)->table;
         
         zend_hash_internal_pointer_reset_ex(table, &position);
         
@@ -321,7 +321,7 @@ int pthreads_store_pop(zval *object, zval **member TSRMLS_DC) {
     if (pthreads_store_lock(object TSRMLS_CC)) {
         pthreads_storage *storage;
         HashPosition position;
-        HashTable *table = &pthreads->store->table;
+        HashTable *table = &P_STORE(pthreads)->table;
         
         zend_hash_internal_pointer_end_ex(table, &position);
         
@@ -527,7 +527,7 @@ static int pthreads_store_convert(pthreads_storage *storage, zval *pzval TSRMLS_
 							    )==SUCCESS) {
 								    ZVAL_RESOURCE(pzval, created);
 								    pthreads_resources_keep(
-									    object->resources, &create, resource TSRMLS_CC
+									    P_RESOURCES(object), &create, resource TSRMLS_CC
 								    );
 							    } else ZVAL_NULL(pzval);
 						    }
@@ -646,16 +646,16 @@ int pthreads_store_merge(zval *destination, zval *from, zend_bool overwrite TSRM
                 PTHREAD pobjects[2] = {PTHREADS_FETCH_FROM(destination), PTHREADS_FETCH_FROM(from)};
                 
                 /* acquire destination lock */
-                if (pthreads_lock_acquire(pobjects[0]->store->lock, &locked[0] TSRMLS_CC)) {
+                if (pthreads_lock_acquire(P_STORE(pobjects[0])->lock, &locked[0] TSRMLS_CC)) {
                     
                     /* acquire other lock */
-                    if (pthreads_lock_acquire(pobjects[1]->store->lock, &locked[1] TSRMLS_CC)) {
+                    if (pthreads_lock_acquire(P_STORE(pobjects[1])->lock, &locked[1] TSRMLS_CC)) {
                         
                         /* free to do what we want, everything locked */
                         
                         HashPosition position;
                         pthreads_storage *storage;
-                        HashTable *tables[2] = {&pobjects[0]->store->table, &pobjects[1]->store->table};
+                        HashTable *tables[2] = {&P_STORE(pobjects[0])->table, &P_STORE(pobjects[1])->table};
                         
                         for (zend_hash_internal_pointer_reset_ex(tables[1], &position);
                              zend_hash_get_current_data_ex(tables[1], (void**)&storage, &position) == SUCCESS;
@@ -719,10 +719,10 @@ int pthreads_store_merge(zval *destination, zval *from, zend_bool overwrite TSRM
                             }
                         }
                         
-                        pthreads_lock_release(pobjects[1]->store->lock, locked[1] TSRMLS_CC);
+                        pthreads_lock_release(P_STORE(pobjects[1])->lock, locked[1] TSRMLS_CC);
                     }
                     
-                    pthreads_lock_release(pobjects[0]->store->lock, locked[0] TSRMLS_CC);
+                    pthreads_lock_release(P_STORE(pobjects[0])->lock, locked[0] TSRMLS_CC);
                     
                     return SUCCESS;
                     
@@ -736,7 +736,7 @@ int pthreads_store_merge(zval *destination, zval *from, zend_bool overwrite TSRM
            zend_bool locked = 0;
            PTHREAD pobject = PTHREADS_FETCH_FROM(destination);
            
-           if (pthreads_lock_acquire(pobject->store->lock, &locked TSRMLS_CC)) {
+           if (pthreads_lock_acquire(P_STORE(pobject)->lock, &locked TSRMLS_CC)) {
                HashPosition position;
                zval **pzval;
                zend_uint index = 0;
@@ -756,7 +756,7 @@ int pthreads_store_merge(zval *destination, zval *from, zend_bool overwrite TSRM
                             }
                                 
                             pthreads_store_write(
-                                pobject->store, key, klen, pzval TSRMLS_CC);
+                                P_STORE(pobject), key, klen, pzval TSRMLS_CC);
                         } break;
                         
                         case HASH_KEY_IS_LONG: {
@@ -772,7 +772,7 @@ int pthreads_store_merge(zval *destination, zval *from, zend_bool overwrite TSRM
                             }
                             
                             pthreads_store_write(
-                                pobject->store, Z_STRVAL(zkey), Z_STRLEN(zkey), pzval TSRMLS_CC);
+                                P_STORE(pobject), Z_STRVAL(zkey), Z_STRLEN(zkey), pzval TSRMLS_CC);
                             
                             zval_dtor(&zkey);
                         } break;
@@ -785,7 +785,7 @@ next:
                     index++;
                }
                
-               pthreads_lock_release(pobject->store->lock, locked TSRMLS_CC);
+               pthreads_lock_release(P_STORE(pobject)->lock, locked TSRMLS_CC);
            }
         } break;
     }

@@ -195,7 +195,7 @@ PHP_METHOD(Thread, isStarted)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		RETURN_BOOL(pthreads_state_isset(thread->state, PTHREADS_ST_STARTED TSRMLS_CC));
+		RETURN_BOOL(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_STARTED TSRMLS_CC));
 	} else zend_error(E_ERROR, "pthreads has experienced an internal error while preparing to read the state of a %s and cannot continue", PTHREADS_NAME);
 } /* }}} */
 
@@ -206,7 +206,7 @@ PHP_METHOD(Thread, isRunning)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		RETURN_BOOL(pthreads_state_isset(thread->state, PTHREADS_ST_RUNNING TSRMLS_CC));
+		RETURN_BOOL(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_RUNNING TSRMLS_CC));
 	} else zend_error(E_ERROR, "pthreads has experienced an internal error while preparing to read the state of a %s and cannot continue", PTHREADS_NAME);
 } /* }}} */
 
@@ -217,7 +217,7 @@ PHP_METHOD(Thread, isJoined)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		RETURN_BOOL(pthreads_state_isset(thread->state, PTHREADS_ST_JOINED TSRMLS_CC));
+		RETURN_BOOL(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_JOINED TSRMLS_CC));
 	} else zend_error(E_ERROR, "pthreads has experienced an internal error while preparing to read the state of a %s and cannot continue", PTHREADS_NAME);
 } /* }}} */
 
@@ -228,7 +228,7 @@ PHP_METHOD(Thread, isWaiting)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		RETURN_BOOL(pthreads_state_isset(thread->state, PTHREADS_ST_WAITING TSRMLS_CC));
+		RETURN_BOOL(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_WAITING TSRMLS_CC));
 	} else zend_error(E_ERROR, "pthreads has experienced an internal error while preparing to read the state of a %s and cannot continue", PTHREADS_NAME);
 } /* }}} */
 
@@ -239,7 +239,7 @@ PHP_METHOD(Thread, isTerminated)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		RETURN_BOOL(pthreads_state_isset(thread->state, PTHREADS_ST_ERROR TSRMLS_CC));
+		RETURN_BOOL(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_ERROR TSRMLS_CC));
 	} else zend_error(E_ERROR, "pthreads has experienced an internal error while preparing to read the state of a %s and cannot continue", PTHREADS_NAME);
 } /* }}} */
 
@@ -250,23 +250,23 @@ PHP_METHOD(Thread, getTerminationInfo)
 	PTHREAD thread = PTHREADS_FETCH;
 	
 	if (thread) {
-		if (pthreads_state_isset(thread->state, PTHREADS_ST_ERROR TSRMLS_CC)) {
+		if (pthreads_state_isset(P_STATE(thread), PTHREADS_ST_ERROR TSRMLS_CC)) {
 		    array_init(return_value);
 		    
-		    if (thread->error->clazz) {
+		    if (P_ERROR(thread)->clazz) {
 		        add_assoc_string(
-		            return_value, "scope", thread->error->clazz, 1);       
+		            return_value, "scope", P_ERROR(thread)->clazz, 1);       
 		    }
 		    
-		    if (thread->error->method) {
+		    if (P_ERROR(thread)->method) {
 		        add_assoc_string(
-		            return_value, "function", thread->error->method, 1);
+		            return_value, "function", P_ERROR(thread)->method, 1);
 		    }
 		    
-		    if (thread->error->file) {
+		    if (P_ERROR(thread)->file) {
 		        add_assoc_string(
-		            return_value, "file", thread->error->file, 1);
-		        add_assoc_long(return_value, "line", thread->error->line);
+		            return_value, "file", P_ERROR(thread)->file, 1);
+		        add_assoc_long(return_value, "line", P_ERROR(thread)->line);
 		    }
 		} else {
 		    RETURN_FALSE;
@@ -348,7 +348,7 @@ PHP_METHOD(Thread, detach)
 PHP_METHOD(Thread, getThreadId)
 {
 	if (getThis()) {
-		ZVAL_LONG(return_value, (PTHREADS_FETCH_FROM(getThis()))->tid);
+		ZVAL_LONG(return_value, P_TID(PTHREADS_FETCH_FROM(getThis())));
 	} else ZVAL_LONG(return_value, pthreads_self());
 } /* }}} */
 
@@ -356,7 +356,7 @@ PHP_METHOD(Thread, getThreadId)
 	Will return the identifier of the thread ( or process ) that created the referenced Thread */
 PHP_METHOD(Thread, getCreatorId)
 {
-	ZVAL_LONG(return_value, (PTHREADS_FETCH_FROM(getThis()))->cid);
+	ZVAL_LONG(return_value, P_LTID(PTHREADS_FETCH_FROM(getThis())));
 } /* }}} */
 
 /* {{{ proto void Thread::synchronized(Callable function, ...)

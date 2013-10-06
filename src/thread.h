@@ -63,44 +63,17 @@ struct _pthreads_error {
     uint                    line;
 }; /* }}} */
 
-/* {{{ thread structure */
-typedef struct _pthread_construct {
-	/*
-	* Standard Entry
-	*/
-	zend_object std;
-
-	/*
+typedef struct _pthread_internal {
+    /*
 	* Thread Object
 	*/
 	pthread_t thread;
-	
-	/*
-	* Thread Scope
-	*/
-	uint scope;
 	
 	/*
 	* Thread Identity and LS
 	*/
 	ulong tid;
 	void ***tls;
-	
-	/*
-	* Creator Identity and LS
-	*/
-	ulong cid;
-	void ***cls;
-	
-	/*
-	* Store Hold
-	*/
-	zend_bool hold;
-	
-	/*
-	* Options
-	*/
-	zend_ulong options;
 	
 	/*
 	*  Thread Lock
@@ -146,12 +119,74 @@ typedef struct _pthread_construct {
 	* Shared Resources
 	**/
 	pthreads_resources resources;
+	
+	/*
+	* Reference Count
+	*/
+	zend_ulong refcount;
+} pthreads_internal;
+
+/* {{{ accessor macros */
+#define P_STORE(p)          ((p)->intern->store)
+#define P_RESOURCES(p)      ((p)->intern->resources)
+#define P_ERROR(p)          ((p)->intern->error)
+#define P_ADDRESS(p)        ((p)->intern->address)
+#define P_STACK(p)          ((p)->intern->stack)
+#define P_MODIFIERS(p)      ((p)->intern->modifiers)
+#define P_SYNCHRO(p)        ((p)->intern->synchro)
+#define P_STATE(p)          ((p)->intern->state)
+#define P_LOCK(p)           ((p)->intern->lock)
+#define P_TLS(p)            ((p)->intern->tls)
+#define P_TID(p)            ((p)->intern->tid)
+#define P_THREAD(p)         ((p)->intern->thread)
+#define P_REFCOUNT(p)       ((p)->intern->refcount) 
+#define P_ADDREF(p)         ++P_REFCOUNT(p)
+#define P_DELREF(p)         --P_REFCOUNT(p)
+#define P_SCOPE(p)          ((p)->scope)
+#define P_OPTIONS(p)        ((p)->options)
+#define P_HOLD(p)           ((p)->hold)
+#define P_LTLS(p)           ((p)->tls) 
+#define P_LTID(p)           ((p)->tid) /* }}} */
+
+/* {{{ thread structure */
+typedef struct _pthread_construct {
+	/*
+	* Standard Entry
+	*/
+	zend_object std;
+
+    /*
+    * pthreads Internals
+    */
+	pthreads_internal *intern;
+	
+	/*
+	* Object Scope
+	*/
+	uint scope;
+	
+	/*
+	* Object Options
+	*/
+	zend_ulong options;
+	
+	/*
+	* Object Storage Hold
+	*/
+	zend_bool hold;
+	
+	/*
+	* Object Identity and Storage
+	*/
+	zend_ulong tid;
+	void ***tls;
 } *PTHREAD;
 
 /* {{{ comparison function */
 static inline int pthreads_equal(PTHREAD first, PTHREAD second) {
-	if (first && second) {
-		if ((first == second))
+	if ((first && second) &&
+	    (first->intern && second->intern)) {
+		if ((first->intern == second->intern))
 		    return 1;
 	}
 	return 0;
@@ -205,45 +240,10 @@ static inline ulong pthreads_self() {
 #endif
 } /* }}} */
 
-/* {{{ mode enumeration for string length function */
-typedef enum {
-    PTHREADS_STRLEN_T,
-    PTHREADS_STRLEN_NT
-} pthreads_strlen_mode_t; /* }}} */
-
-/* {{{ calculate/ascertain or request length of null terminated or not null terminated string */
-static inline size_t pthreads_strlen(const char* str, size_t length, pthreads_strlen_mode_t mode) {
-    switch (mode) {
-        case PTHREADS_STRLEN_T: switch (str[length+1]) {
-            case '\0':
-                php_printf("(2)found null at %d, return %d\n", length, length+1);
-                return length+1;
-                
-            default: switch (str[length]) {
-                case '\0': 
-                    php_printf("(3)found null at %d+1, return %d\n", length, length+1);
-                    return length;
-                    
-                default: return strlen(str) + 1;
-            }
-        } break;
-        
-        case PTHREADS_STRLEN_NT: {
-            
-        } break;
-    }
-} /* }}} */
-
-/* {{{ get null terminated string length */
-#define PTHREADS_STRLEN(s, l) \
-    (((s)[(l)] == '\0') ? (l) : \
-        ((s)[(l)-1] == '\0') ? ((l)+1) : \
-            (strlen((s)))) /* }}} */
-
 /* {{{ tell if the calling thread created referenced PTHREAD */
-#define PTHREADS_IN_CREATOR(t)	(t->cls == tsrm_ls) /* }}} */
+#define PTHREADS_IN_CREATOR(t)	(P_TLS(t) == P_LTLS(t)) /* }}} */
 
 /* {{{ tell if the referenced thread is the threading context */
-#define PTHREADS_IN_THREAD(t)	(t->tls == tsrm_ls) /* }}} */
+#define PTHREADS_IN_THREAD(t)	(P_LTLS(t) == tsrm_ls) /* }}} */
 
 #endif /* }}} */ /* HAVE_PTHREADS_THREAD_H */

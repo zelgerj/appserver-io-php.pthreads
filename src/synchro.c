@@ -111,14 +111,14 @@ void pthreads_synchro_block(zval *this_ptr, zend_fcall_info *info, zend_fcall_in
 			if (pobject) {
 				/* synchronized block execution */
 				{
-					pthreads_synchro_lock(pobject->synchro TSRMLS_CC);		
+					pthreads_synchro_lock(P_SYNCHRO(pobject) TSRMLS_CC);		
 					/* call the closure */
 					zend_call_function(
 						info, 
 						cache 
 						TSRMLS_CC
 					);
-					pthreads_synchro_unlock(pobject->synchro TSRMLS_CC);
+					pthreads_synchro_unlock(P_SYNCHRO(pobject) TSRMLS_CC);
 				}
 				/* end synchronization */
 			}

@@ -38,6 +38,37 @@
 #	include <src/store.h>
 #endif
 
+#define P_ALLOC(p)          do{\
+    (p)->intern = (pthreads_internal*) malloc(sizeof(pthreads_internal));\
+}while(0)
+
+#define P_FREE(p)           do{\
+    if (P_DELREF(p) <= 1) {\
+        pthreads_lock_free(P_LOCK(p) TSRMLS_CC);\
+	    pthreads_state_free(P_STATE(p)  TSRMLS_CC);\
+	    pthreads_modifiers_free(P_MODIFIERS(p) TSRMLS_CC);\
+	    pthreads_store_free(P_STORE(p) TSRMLS_CC);\
+	    pthreads_synchro_free(P_SYNCHRO(p) TSRMLS_CC);\
+	    pthreads_resources_free(P_RESOURCES(p) TSRMLS_CC);\
+	    pthreads_address_free(P_ADDRESS(p));\
+        pthreads_error_free(P_ERROR(p) TSRMLS_CC);\
+        \
+	    if (PTHREADS_IS_WORKER(p)) {\
+		    zend_hash_destroy(\
+			    &P_STACK(p)->objects\
+		    );\
+		    free(P_STACK(p));\
+	    }\
+	    free(p->intern);\
+    } else php_printf("not dtoring %p/%d refs\n", p->intern, P_REFCOUNT(p));\
+}while(0)
+
+#define P_COPY(d, s)        do{\
+    d->intern = s->intern;\
+    if (PTHREADS_IS_NOT_CONNECTION(s))\
+        P_ADDREF(s);\
+}while(0)
+
 /* {{{ pthreads module entry */
 extern zend_module_entry pthreads_module_entry; /* }}} */
 
@@ -48,13 +79,13 @@ static inline pthreads_address pthreads_address_alloc(PTHREAD object TSRMLS_DC) 
 	    
 		/* add the space for null here, once */
 		address->length = snprintf(
-			NULL, 0, "%lu:%lu", pid, (long) object
+			NULL, 0, "%lu:%lu", pid, (long) object->intern
 		);
 		if (address->length) {
 			address->serial = calloc(1, address->length+1);
 			if (address->serial) {
 				sprintf(
-					(char*) address->serial, "%lu:%lu", pid, (long) object
+					(char*) address->serial, "%lu:%lu", pid, (long) object->intern
 				);
 			}
 		}
@@ -85,19 +116,19 @@ static void * pthreads_routine(void *arg); /* }}} */
 zend_bool pthreads_set_state_ex(PTHREAD thread, int mask, long timeout TSRMLS_DC) {
 	zend_bool locked, dowait, result;
 	if (mask & PTHREADS_ST_WAITING) {
-		if (pthreads_state_lock(thread->state, &locked TSRMLS_CC)) {
-			dowait = !pthreads_state_check(thread->state, PTHREADS_ST_JOINED TSRMLS_CC);
+		if (pthreads_state_lock(P_STATE(thread), &locked TSRMLS_CC)) {
+			dowait = !pthreads_state_check(P_STATE(thread), PTHREADS_ST_JOINED TSRMLS_CC);
 			if (dowait)
-				pthreads_state_set_locked(thread->state, PTHREADS_ST_WAITING TSRMLS_CC);
+				pthreads_state_set_locked(P_STATE(thread), PTHREADS_ST_WAITING TSRMLS_CC);
 			if (locked)
-				pthreads_state_unlock(thread->state, locked TSRMLS_CC);
+				pthreads_state_unlock(P_STATE(thread), locked TSRMLS_CC);
 			if (dowait) {
 				result = pthreads_synchro_wait_ex(
-					thread->synchro, timeout TSRMLS_CC
+					P_SYNCHRO(thread), timeout TSRMLS_CC
 				);
 			} else result = 0;
 		} else result = 0;
-	} else result = pthreads_state_set(thread->state, mask TSRMLS_CC);
+	} else result = pthreads_state_set(P_STATE(thread), mask TSRMLS_CC);
 	return result;
 } /* }}} */
 
@@ -111,10 +142,10 @@ zend_bool pthreads_unset_state(PTHREAD thread, int mask TSRMLS_DC){
 	zend_bool result = 0;
 	
 	if (mask & PTHREADS_ST_WAITING) {
-		if (pthreads_state_unset(thread->state, mask TSRMLS_CC)) {
-			result = pthreads_synchro_notify(thread->synchro TSRMLS_CC);
+		if (pthreads_state_unset(P_STATE(thread), mask TSRMLS_CC)) {
+			result = pthreads_synchro_notify(P_SYNCHRO(thread) TSRMLS_CC);
 		} else result = 0;
-	} else result = pthreads_state_unset(thread->state, mask TSRMLS_CC);
+	} else result = pthreads_state_unset(P_STATE(thread), mask TSRMLS_CC);
 	
 	return result;
 } /* }}} */
@@ -185,8 +216,8 @@ size_t pthreads_stack_pop(PTHREAD thread, PTHREAD work TSRMLS_DC) {
 	zend_bool locked;
 	int remain = 0;
 	
-	if (pthreads_lock_acquire(thread->lock, &locked TSRMLS_CC)) {
-		HashTable *stack = &thread->stack->objects;
+	if (pthreads_lock_acquire(P_LOCK(thread), &locked TSRMLS_CC)) {
+		HashTable *stack = &P_STACK(thread)->objects;
 		if (work) {
 		    HashPosition position;
 		    PTHREAD search = NULL;
@@ -198,7 +229,7 @@ size_t pthreads_stack_pop(PTHREAD thread, PTHREAD work TSRMLS_DC) {
 		    }
 		} else zend_hash_destroy(stack);
 		remain = zend_hash_num_elements(stack);
-		pthreads_lock_release(thread->lock, locked TSRMLS_CC);
+		pthreads_lock_release(P_LOCK(thread), locked TSRMLS_CC);
 	} else remain = -1;
 	return remain;
 } /* }}} */
@@ -209,13 +240,13 @@ size_t pthreads_stack_push(PTHREAD thread, zval *work TSRMLS_DC) {
 	PTHREAD stackable = PTHREADS_FETCH_FROM(work);
 	size_t counted = 0L;
 	
-	if (pthreads_lock_acquire(thread->lock, &locked TSRMLS_CC)) {
-		HashTable *stack = &thread->stack->objects;
+	if (pthreads_lock_acquire(P_LOCK(thread), &locked TSRMLS_CC)) {
+		HashTable *stack = &P_STACK(thread)->objects;
 		if (stack) {
 	        if (!zend_hash_num_elements(stack)) {
 	            zend_hash_clean(
 	                stack);
-	            thread->stack->position = 0L;
+	            P_STACK(thread)->position = 0L;
 	        }
 	        
 		    zend_hash_next_index_insert(
@@ -223,13 +254,13 @@ size_t pthreads_stack_push(PTHREAD thread, zval *work TSRMLS_DC) {
 		    );
 			counted = zend_hash_num_elements(stack);
 		}
-		pthreads_lock_release(thread->lock, locked TSRMLS_CC);
+		pthreads_lock_release(P_LOCK(thread), locked TSRMLS_CC);
 		
 		if (counted > 0L) {
-		    pthreads_synchro_lock(thread->synchro TSRMLS_CC);
+		    pthreads_synchro_lock(P_SYNCHRO(thread) TSRMLS_CC);
 			pthreads_unset_state(
 			    thread, PTHREADS_ST_WAITING TSRMLS_CC);
-			pthreads_synchro_unlock(thread->synchro TSRMLS_CC);
+			pthreads_synchro_unlock(P_SYNCHRO(thread) TSRMLS_CC);
 		}
 	}
 	
@@ -247,11 +278,11 @@ size_t pthreads_stack_next(PTHREAD thread, zval *this_ptr TSRMLS_DC) {
 	ulong key = 0L;
 	
 burst:
-	if (pthreads_lock_acquire(thread->lock, &locked TSRMLS_CC)) {
-		if ((bubble=zend_hash_num_elements((HashTable*) thread->stack)) > 0) {
+	if (pthreads_lock_acquire(P_LOCK(thread), &locked TSRMLS_CC)) {
+		if ((bubble=zend_hash_num_elements((HashTable*) P_STACK(thread))) > 0) {
 			zend_hash_index_find(
-			    (HashTable*) thread->stack,
-			     thread->stack->position, (void**) &work
+			    (HashTable*) P_STACK(thread),
+			     P_STACK(thread)->position, (void**) &work
 			);
 			if (current = *work) {
 				/*
@@ -290,13 +321,10 @@ burst:
 						PTHREAD stackable = PTHREADS_FETCH_FROM(that_ptr);
 						
 						if (stackable) {
-							current->tid = thread->tid;
-							current->tls = thread->tls;
-							
 							pthreads_connect(current, stackable TSRMLS_CC);
 
 							pthreads_store_write(
-								stackable->store, "worker", sizeof("worker")-1, &this_ptr TSRMLS_CC
+								P_STORE(stackable), "worker", sizeof("worker")-1, &this_ptr TSRMLS_CC
 							);
 	
 							Z_ADDREF_P(this_ptr);
@@ -306,18 +334,18 @@ burst:
 			}
 			
 			zend_hash_index_del(
-			    (HashTable*) thread->stack, thread->stack->position++);
+			    (HashTable*) P_STACK(thread), P_STACK(thread)->position++);
 
 		}
-		pthreads_lock_release(thread->lock, locked TSRMLS_CC);
+		pthreads_lock_release(P_LOCK(thread), locked TSRMLS_CC);
 		
 		if (!bubble) {
-			if (!pthreads_state_isset(thread->state, PTHREADS_ST_JOINED TSRMLS_CC)) {
-			    pthreads_synchro_lock(thread->synchro TSRMLS_CC);
+			if (!pthreads_state_isset(P_STATE(thread), PTHREADS_ST_JOINED TSRMLS_CC)) {
+			    pthreads_synchro_lock(P_SYNCHRO(thread) TSRMLS_CC);
 				if (pthreads_set_state(thread, PTHREADS_ST_WAITING TSRMLS_CC)) {
-				    pthreads_synchro_unlock(thread->synchro TSRMLS_CC);
+				    pthreads_synchro_unlock(P_SYNCHRO(thread) TSRMLS_CC);
 					goto burst;
-				} else pthreads_synchro_unlock(thread->synchro TSRMLS_CC);
+				} else pthreads_synchro_unlock(P_SYNCHRO(thread) TSRMLS_CC);
 			} else return 0;
 		}
 	}
@@ -329,10 +357,10 @@ burst:
 size_t pthreads_stack_length(PTHREAD thread TSRMLS_DC) {
 	zend_bool locked;
 	size_t counted = 0;
-	if (pthreads_lock_acquire(thread->lock, &locked TSRMLS_CC)) {
+	if (pthreads_lock_acquire(P_LOCK(thread), &locked TSRMLS_CC)) {
 		counted = zend_hash_num_elements(
-		    &thread->stack->objects);
-		pthreads_lock_release(thread->lock, locked TSRMLS_CC);
+		    &P_STACK(thread)->objects);
+		pthreads_lock_release(P_LOCK(thread), locked TSRMLS_CC);
 	}
 	return counted;
 } /* }}} */
@@ -342,7 +370,7 @@ zend_object_value pthreads_thread_ctor(zend_class_entry *entry TSRMLS_DC) {
 	zend_object_value attach;
 	PTHREAD thread = calloc(1, sizeof(*thread));
 	if (thread) {
-		thread->scope = PTHREADS_SCOPE_THREAD;
+		P_SCOPE(thread) = PTHREADS_SCOPE_THREAD;
 		pthreads_base_ctor(thread, entry TSRMLS_CC);
 		attach.handle = zend_objects_store_put(
 			thread,
@@ -396,21 +424,7 @@ static int pthreads_connect(PTHREAD source, PTHREAD destination TSRMLS_DC) {
 	if (source && destination) {
 
 		if (PTHREADS_IS_NOT_CONNECTION(destination)) {
-			pthreads_lock_free(destination->lock TSRMLS_CC);
-			pthreads_state_free(destination->state  TSRMLS_CC);
-			pthreads_modifiers_free(destination->modifiers TSRMLS_CC);
-			pthreads_store_free(destination->store TSRMLS_CC);
-			pthreads_synchro_free(destination->synchro TSRMLS_CC);
-			pthreads_resources_free(destination->resources TSRMLS_CC);
-			pthreads_address_free(destination->address);
-            pthreads_error_free(destination->error TSRMLS_CC);
-            
-			if (PTHREADS_IS_WORKER(destination)) {
-				zend_hash_destroy(
-				    &destination->stack->objects
-				);
-				free(destination->stack);
-			}
+			P_FREE(destination);
 			
 			destination->scope |= PTHREADS_SCOPE_CONNECTION;
 			
@@ -420,25 +434,8 @@ static int pthreads_connect(PTHREAD source, PTHREAD destination TSRMLS_DC) {
 				destination TSRMLS_CC
 			);
 		}
-		
-		destination->thread = source->thread;
-		destination->tid = source->tid;
-		destination->tls = source->tls;
-		destination->cls = source->cls;
-		destination->cid = source->cid;
-		destination->address = source->address;
-		destination->resources = source->resources;
-		destination->lock = source->lock;
-		destination->state = source->state;
-		destination->synchro = source->synchro;
-		destination->modifiers = source->modifiers;
-		destination->store = source->store;
-		destination->stack = source->stack;
-		destination->error = source->error;
-		
-		if (PTHREADS_IS_DETACHED(source)) {
-		    destination->scope |= PTHREADS_SCOPE_DETACHED;
-		}
+
+		P_COPY(destination, source);
 		
 		return SUCCESS;
 	} else return FAILURE;
@@ -462,34 +459,33 @@ static void pthreads_base_ctor(PTHREAD base, zend_class_entry *entry TSRMLS_DC) 
 #else
 		object_properties_init(&(base->std), entry);
 #endif	
-
-		base->cls = tsrm_ls;
-		base->address = pthreads_address_alloc(base TSRMLS_CC);
-		base->options = PTHREADS_INHERIT_ALL;
+        
+        P_ALLOC(base);
+        P_REFCOUNT(base) = 1;
+        
+		P_LTLS(base) = tsrm_ls;
+		P_LTID(base) = pthreads_self();
+		P_ADDRESS(base) = pthreads_address_alloc(base TSRMLS_CC);
+		P_OPTIONS(base) = PTHREADS_INHERIT_ALL;
 		
-		if (PTHREADS_IS_CONNECTION(base)) {
-			base->tid = pthreads_self();
-		} else {
-			base->cid = pthreads_self();
-			base->lock = pthreads_lock_alloc(TSRMLS_C);
-			base->state = pthreads_state_alloc(0 TSRMLS_CC);
-			base->synchro = pthreads_synchro_alloc(TSRMLS_C);
-			base->modifiers = pthreads_modifiers_alloc(TSRMLS_C);
-			base->store = pthreads_store_alloc(TSRMLS_C);
-			base->resources = pthreads_resources_alloc(TSRMLS_C);
-            base->error = pthreads_error_alloc(TSRMLS_C);
-            
-			pthreads_modifiers_init(base->modifiers, entry TSRMLS_CC);
-			if (PTHREADS_IS_WORKER(base)) {
-				base->stack = (pthreads_stack) calloc(1, sizeof(*base->stack));
-				if (base->stack) {
-				    zend_hash_init(
-				        &base->stack->objects, 8, NULL, NULL, 1);
-                    base->stack->position = 0L;
-				}	
-			}
-			
+		if (PTHREADS_IS_NOT_CONNECTION(base)) {
+		    P_LOCK(base) = pthreads_lock_alloc(TSRMLS_C);
+			P_STATE(base) = pthreads_state_alloc(0 TSRMLS_CC);
+			P_SYNCHRO(base) = pthreads_synchro_alloc(TSRMLS_C);
+			P_MODIFIERS(base) = pthreads_modifiers_alloc(TSRMLS_C);
+			P_STORE(base) = pthreads_store_alloc(TSRMLS_C);
+			P_RESOURCES(base) = pthreads_resources_alloc(TSRMLS_C);
+            P_ERROR(base) = pthreads_error_alloc(TSRMLS_C);
 
+			pthreads_modifiers_init(P_MODIFIERS(base), entry TSRMLS_CC);
+			if (PTHREADS_IS_WORKER(base)) {
+				P_STACK(base) = (pthreads_stack) calloc(1, sizeof(*P_STACK(base)));
+				if (P_STACK(base)) {
+				    zend_hash_init(
+				        &P_STACK(base)->objects, 8, NULL, NULL, 1);
+                    P_STACK(base)->position = 0L;
+				}
+			}	
 		}
 	}
 } /* }}} */
@@ -498,33 +494,17 @@ static void pthreads_base_ctor(PTHREAD base, zend_class_entry *entry TSRMLS_DC) 
 static void pthreads_base_dtor(void *arg TSRMLS_DC) {
 	PTHREAD base = (PTHREAD) arg;
 
-	if (PTHREADS_IS_NOT_CONNECTION(base) && PTHREADS_IS_NOT_DETACHED(base)) {
-	    if (PTHREADS_IS_NOT_DETACHED(base)) {
-	        if (PTHREADS_IS_THREAD(base)||PTHREADS_IS_WORKER(base)) {
-		        pthread_t *pthread = &base->thread;
-		        if (pthread) {
-			        pthreads_join(base TSRMLS_CC);
-		        }
+	if (PTHREADS_IS_NOT_CONNECTION(base) &&     
+	    PTHREADS_IS_NOT_DETACHED(base)) {
+	    if (PTHREADS_IS_THREAD(base)||PTHREADS_IS_WORKER(base)) {
+	        pthread_t *pthread = &P_THREAD(base);
+	        if (pthread) {
+		        pthreads_join(base TSRMLS_CC);
 	        }
-	    }
-
-	    pthreads_lock_free(base->lock TSRMLS_CC);
-	    pthreads_state_free(base->state  TSRMLS_CC);
-	    pthreads_modifiers_free(base->modifiers TSRMLS_CC);
-	    pthreads_store_free(base->store TSRMLS_CC);
-	    pthreads_synchro_free(base->synchro TSRMLS_CC);
-	    pthreads_resources_free(base->resources TSRMLS_CC);
-	    pthreads_address_free(base->address);
-        pthreads_error_free(base->error TSRMLS_CC);
+        }
         
-	    if (PTHREADS_IS_WORKER(base)) {
-		    zend_hash_destroy(
-			    &base->stack->objects
-		    );
-		    free(base->stack);
-	    }
+	    P_FREE(base);
 	}
-    
     
 
 #if PHP_VERSION_ID > 50399
@@ -555,12 +535,10 @@ static void pthreads_base_dtor(void *arg TSRMLS_DC) {
 static void pthreads_base_free(void *arg TSRMLS_DC) {
 	PTHREAD base = (PTHREAD) arg;
 	if (base) {
-	    if (PTHREADS_IS_NOT_DETACHED(base)) {
-	        free(
-		        base
-	        );
-	        base = NULL;
-	    }
+	    free(
+	        base
+        );
+        base = NULL;
 	}	
 } /* }}} */
 
@@ -574,21 +552,21 @@ int pthreads_start(PTHREAD thread TSRMLS_DC) {
 	int dostart = 0;
 	int started = FAILURE;
 	zend_bool tlocked, slocked;
-	if (pthreads_state_lock(thread->state, &slocked TSRMLS_CC)) {
-		if (!pthreads_state_check(thread->state, PTHREADS_ST_STARTED TSRMLS_CC)) {
-			pthreads_state_set_locked(thread->state, PTHREADS_ST_STARTED TSRMLS_CC);
+	if (pthreads_state_lock(P_STATE(thread), &slocked TSRMLS_CC)) {
+		if (!pthreads_state_check(P_STATE(thread), PTHREADS_ST_STARTED TSRMLS_CC)) {
+			pthreads_state_set_locked(P_STATE(thread), PTHREADS_ST_STARTED TSRMLS_CC);
 			dostart = 1;
 		} else started = PTHREADS_ST_STARTED;
 		if (slocked)
-			pthreads_state_unlock(thread->state, slocked TSRMLS_CC);
+			pthreads_state_unlock(P_STATE(thread), slocked TSRMLS_CC);
 		
 	}
 	if (dostart) {
-		if (pthreads_lock_acquire(thread->lock, &tlocked TSRMLS_CC)) {
-			started = pthread_create(&thread->thread, NULL, pthreads_routine, (void*)thread);
+		if (pthreads_lock_acquire(P_LOCK(thread), &tlocked TSRMLS_CC)) {
+			started = pthread_create(&P_THREAD(thread), NULL, pthreads_routine, (void*)thread);
 			if (started == SUCCESS) 
-				pthreads_state_wait(thread->state, PTHREADS_ST_RUNNING TSRMLS_CC);
-			pthreads_lock_release(thread->lock, tlocked TSRMLS_CC);
+				pthreads_state_wait(P_STATE(thread), PTHREADS_ST_RUNNING TSRMLS_CC);
+			pthreads_lock_release(P_LOCK(thread), tlocked TSRMLS_CC);
 		}
 	}
 	
@@ -601,23 +579,23 @@ int pthreads_join(PTHREAD thread TSRMLS_DC) {
 	int donotify = 0;
 	zend_bool slocked;
 	
-	if (pthreads_state_lock(thread->state, &slocked TSRMLS_CC)) {
-		if (pthreads_state_check(thread->state, PTHREADS_ST_STARTED TSRMLS_CC) && 
-			!pthreads_state_check(thread->state, PTHREADS_ST_JOINED TSRMLS_CC)) {
-			pthreads_state_set_locked(thread->state, PTHREADS_ST_JOINED TSRMLS_CC);
+	if (pthreads_state_lock(P_STATE(thread), &slocked TSRMLS_CC)) {
+		if (pthreads_state_check(P_STATE(thread), PTHREADS_ST_STARTED TSRMLS_CC) && 
+			!pthreads_state_check(P_STATE(thread), PTHREADS_ST_JOINED TSRMLS_CC)) {
+			pthreads_state_set_locked(P_STATE(thread), PTHREADS_ST_JOINED TSRMLS_CC);
 			if (PTHREADS_IS_WORKER(thread))
-				donotify = pthreads_state_check(thread->state, PTHREADS_ST_WAITING TSRMLS_CC);
+				donotify = pthreads_state_check(P_STATE(thread), PTHREADS_ST_WAITING TSRMLS_CC);
 			dojoin = 1;
 		}
 		if (slocked)
-			pthreads_state_unlock(thread->state, slocked TSRMLS_CC);
+			pthreads_state_unlock(P_STATE(thread), slocked TSRMLS_CC);
 	}
 	
 	if (donotify) do {
 		pthreads_unset_state(thread, PTHREADS_ST_WAITING TSRMLS_CC);
-	} while(pthreads_state_isset(thread->state, PTHREADS_ST_WAITING TSRMLS_CC));
+	} while(pthreads_state_isset(P_STATE(thread), PTHREADS_ST_WAITING TSRMLS_CC));
 	
-	return dojoin ? pthread_join(thread->thread, NULL) 	: FAILURE;
+	return dojoin ? pthread_join(P_THREAD(thread), NULL) 	: FAILURE;
 } /* }}} */
 
 /* {{{ detach a thread */
@@ -625,9 +603,8 @@ int pthreads_detach(PTHREAD thread TSRMLS_DC) {
     int results;
     
     if (PTHREADS_IS_NOT_DETACHED(thread)) {
-        if ((pthread_detach(thread->thread) == SUCCESS)) {
-            thread->scope |= PTHREADS_SCOPE_DETACHED;
-            
+        if ((pthread_detach(P_THREAD(thread)) == SUCCESS)) {
+            P_SCOPE(thread) |= PTHREADS_SCOPE_DETACHED;
             return SUCCESS;
         }
     }
@@ -637,9 +614,9 @@ int pthreads_detach(PTHREAD thread TSRMLS_DC) {
 
 /* {{{ synchronization helper */
 zend_bool pthreads_wait_member_ex(PTHREAD thread, zval *member, ulong timeout TSRMLS_DC) {
-	if (!pthreads_store_isset(thread->store, Z_STRVAL_P(member), Z_STRLEN_P(member), 2 TSRMLS_CC)) {
-		if (pthreads_synchro_wait_ex(thread->synchro, timeout TSRMLS_CC))
-			return pthreads_store_isset(thread->store, Z_STRVAL_P(member), Z_STRLEN_P(member), 2 TSRMLS_CC);
+	if (!pthreads_store_isset(P_STORE(thread), Z_STRVAL_P(member), Z_STRLEN_P(member), 2 TSRMLS_CC)) {
+		if (pthreads_synchro_wait_ex(P_SYNCHRO(thread), timeout TSRMLS_CC))
+			return pthreads_store_isset(P_STORE(thread), Z_STRVAL_P(member), Z_STRLEN_P(member), 2 TSRMLS_CC);
 		else return 0;
 	} else return 1;
 } /* }}} */
@@ -654,10 +631,10 @@ int pthreads_internal_serialize(zval *object, unsigned char **buffer, zend_uint 
 	PTHREAD threaded = PTHREADS_FETCH_FROM(object);
 	if (threaded) {
 		(*buffer) = (unsigned char*) estrndup(
-			(char*)threaded->address->serial, 
-			threaded->address->length
+			(char*)P_ADDRESS(threaded)->serial, 
+			P_ADDRESS(threaded)->length
 		);
-		(*blength) = threaded->address->length+1;
+		(*blength) = P_ADDRESS(threaded)->length+1;
 		
 		return SUCCESS;
 	}
@@ -666,9 +643,10 @@ int pthreads_internal_serialize(zval *object, unsigned char **buffer, zend_uint 
 
 /* {{{ connects to an instance of a threaded object */
 int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const unsigned char *buffer, zend_uint blength, zend_unserialize_data *data TSRMLS_DC) {
-	PTHREAD address = NULL;
+	PTHREAD destination = NULL;
+	pthreads_internal *address = NULL;
 	pid_t pid = 0L;
-
+    
 	if (object_init_ex(
 		    *object, ce
 	    )==SUCCESS) {
@@ -680,7 +658,9 @@ int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const uns
 	            if (pid == mpid) {
 	                PTHREAD destination = PTHREADS_FETCH_FROM(*object);
                     if (destination) {
-                        pthreads_connect(address, destination TSRMLS_CC);
+                       P_FREE(destination);
+                       destination->scope |= PTHREADS_SCOPE_CONNECTION;
+                       destination->intern = address;
                     }
 	            } else {
 	                zend_error(
@@ -721,16 +701,16 @@ static void * pthreads_routine(void *arg) {
 		pthreads_globals_lock(&glocked TSRMLS_CC);
 		
 		/* create new context */
-		thread->tls = tsrm_ls = tsrm_new_interpreter_context();
+		P_TLS(thread) = tsrm_ls = tsrm_new_interpreter_context();
 		
 		/* set interpreter context */
 		tsrm_set_interpreter_context(tsrm_ls);
 
 		/* set thread id for this object */
-		thread->tid = pthreads_self();
+		P_TID(thread) = pthreads_self();
 		
 		/* set context the same as parent */
-		SG(server_context)=PTHREADS_SG(thread->cls, server_context);
+		SG(server_context)=PTHREADS_SG(P_LTLS(thread), server_context);
 		
 		/* some php globals */
 		PG(expose_php) = 0;
@@ -824,7 +804,7 @@ static void * pthreads_routine(void *arg) {
 							cache.object_ptr = ZEG->This;
 																																																																					
 							/* call the function */
-							pthreads_state_set(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
+							pthreads_state_set(P_STATE(current), PTHREADS_ST_RUNNING TSRMLS_CC);
 							{
 							    zend_bool terminated = 0;
 								/* graceful fatalities */
@@ -840,13 +820,13 @@ static void * pthreads_routine(void *arg) {
 								    /* set terminated state */
 								    if (terminated) {
 								        pthreads_state_set(
-									        current->state, PTHREADS_ST_ERROR TSRMLS_CC);
+									        P_STATE(current), PTHREADS_ST_ERROR TSRMLS_CC);
 									    /* save error information */
-									    pthreads_error_save(current->error TSRMLS_CC);
+									    pthreads_error_save(P_ERROR(current) TSRMLS_CC);
 								    }
 								    
 								    /* unset running for waiters */
-								    pthreads_state_unset(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
+								    pthreads_state_unset(P_STATE(current), PTHREADS_ST_RUNNING TSRMLS_CC);
 								}
 							}
 #if PHP_VERSION_ID > 50399

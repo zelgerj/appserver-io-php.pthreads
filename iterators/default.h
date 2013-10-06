@@ -53,7 +53,7 @@ static inline zend_object_iterator* pthreads_object_iterator_ctor(zend_class_ent
         PTHREAD pobject = PTHREADS_FETCH_FROM(object);
                 
         pthreads_store_tohash(
-            pobject->store, &iterator->properties TSRMLS_CC);
+            P_STORE(pobject), &iterator->properties TSRMLS_CC);
         
         zend_hash_internal_pointer_reset_ex(
             &iterator->properties, &iterator->position);

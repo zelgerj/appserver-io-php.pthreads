@@ -310,7 +310,7 @@ zend_class_entry* pthreads_prepared_entry(PTHREAD thread, zend_class_entry *cand
 	
 	if (candidate) {
         char *lower = pthreads_global_string(
-            (char*) candidate->name, candidate->name_length, 1 TSRMLS_CC);
+            (char*) candidate->name, candidate->name_length+1, 1 TSRMLS_CC);
         
 		if (lower != NULL) {
 			/* perform lookup for existing class */
@@ -326,7 +326,7 @@ zend_class_entry* pthreads_prepared_entry(PTHREAD thread, zend_class_entry *cand
                             
 			} else prepared = *searched;
 
-		} else zend_error(E_ERROR, "pthreads has detected a memory error while attempting to prepare %s for execution in %s %lu", candidate->name, thread->std.ce->name, thread->tid);
+		} else zend_error(E_ERROR, "pthreads has detected a memory error while attempting to prepare %s for execution in %s %lu", candidate->name, thread->std.ce->name, P_TID(thread));
 	}
 	return prepared;
 } /* }}} */
@@ -336,9 +336,9 @@ void pthreads_prepare(PTHREAD thread TSRMLS_DC){
 	HashPosition position;
 	
 	/* inherit ini entries from parent ... */
-	if (thread->options & PTHREADS_INHERIT_INI) {
+	if (P_OPTIONS(thread) & PTHREADS_INHERIT_INI) {
 		zend_ini_entry *entry[2];
-		HashTable *table[2] = {PTHREADS_EG(thread->cls, ini_directives), EG(ini_directives)};
+		HashTable *table[2] = {PTHREADS_EG(P_LTLS(thread), ini_directives), EG(ini_directives)};
 
 		for(zend_hash_internal_pointer_reset_ex(table[0], &position);
 			zend_hash_get_current_data_ex(table[0], (void**) &entry[0], &position)==SUCCESS;
@@ -363,9 +363,9 @@ void pthreads_prepare(PTHREAD thread TSRMLS_DC){
 	}
 	
 	/* copy constants */
-	if (thread->options & PTHREADS_INHERIT_CONSTANTS) {
+	if (P_OPTIONS(thread) & PTHREADS_INHERIT_CONSTANTS) {
 		zend_constant *zconstant;
-		HashTable *table[2] = {PTHREADS_EG(thread->cls, zend_constants), EG(zend_constants)};
+		HashTable *table[2] = {PTHREADS_EG(P_LTLS(thread), zend_constants), EG(zend_constants)};
 		
 		for(zend_hash_internal_pointer_reset_ex(table[0], &position);
 			zend_hash_get_current_data_ex(table[0], (void**) &zconstant, &position)==SUCCESS;
@@ -403,20 +403,20 @@ void pthreads_prepare(PTHREAD thread TSRMLS_DC){
 	}
 	
 	/* inherit function table from parent ... */
-	if (thread->options & PTHREADS_INHERIT_FUNCTIONS) {
+	if (P_OPTIONS(thread) & PTHREADS_INHERIT_FUNCTIONS) {
 		zend_function function;
 		zend_hash_merge(
 			EG(function_table),
-			PTHREADS_EG(thread->cls, function_table), 
+			PTHREADS_EG(P_LTLS(thread), function_table), 
 			(copy_ctor_func_t) function_add_ref, 
 			&function, sizeof(zend_function), 0
 		);
 	}
 	
 	/* inherit class table from parent ... */
-	if (thread->options & PTHREADS_INHERIT_CLASSES) {
+	if (P_OPTIONS(thread) & PTHREADS_INHERIT_CLASSES) {
 		zend_class_entry **entry;
-		HashTable *table[2] = {PTHREADS_CG(thread->cls, class_table), CG(class_table)};
+		HashTable *table[2] = {PTHREADS_CG(P_LTLS(thread), class_table), CG(class_table)};
         HashTable store;
         
         zend_hash_init(&store, zend_hash_num_elements(table[1]), NULL, NULL, 0);
@@ -435,7 +435,7 @@ void pthreads_prepare(PTHREAD thread TSRMLS_DC){
 				    if (zend_hash_find(table[1], lcname, lcnamel, (void**)&exists) != SUCCESS){
 					    if ((prepared=pthreads_prepared_entry(thread, *entry TSRMLS_CC))==NULL) {
 						    zend_error(
-							    E_ERROR, "pthreads detected failure while preparing %s in %s", (*entry)->name, thread->std.ce->name, thread->tid
+							    E_ERROR, "pthreads detected failure while preparing %s in %s", (*entry)->name, thread->std.ce->name, P_TID(thread)
 						    );
 						    return;
 					    }
@@ -462,11 +462,11 @@ void pthreads_prepare(PTHREAD thread TSRMLS_DC){
 	}
 	
 	/* merge included files with parent */
-	if (thread->options & PTHREADS_INHERIT_INCLUDES){
+	if (P_OPTIONS(thread) & PTHREADS_INHERIT_INCLUDES){
 		int included;
 		zend_hash_merge(
 			&EG(included_files), 
-			&PTHREADS_EG(thread->cls, included_files),
+			&PTHREADS_EG(P_LTLS(thread), included_files),
 			NULL, &included, sizeof(int), 0
 		);
 	}
@@ -615,8 +615,8 @@ static void pthreads_prepared_resource_dtor(zend_rsrc_list_entry *entry) {
 		zend_try {
 			PTHREAD object = PTHREADS_ZG(pointer);
 			if (object) {
-				if (object->resources) {
-					if (!pthreads_resources_kept(object->resources, entry TSRMLS_CC)){
+				if (P_RESOURCES(object)) {
+					if (!pthreads_resources_kept(P_RESOURCES(object), entry TSRMLS_CC)){
 						if (PTHREADS_G(default_resource_dtor))
 							PTHREADS_G(default_resource_dtor)(entry);
 					}

@@ -77,7 +77,7 @@ class MyThread extends Thread {
 					print_r($work);
 				} else printf("%s (%lu) WORKER SHUTDOWN\n", __METHOD__, $this->getThreadId());
 			} else printf("NO WORKER !!\n");
-			printf("%s (%lu) STORED %s@%s\n", __METHOD__, $this->getThreadId(), $this->storage->fetch($this->stored), $this->getStorageId());
+			printf("%s (%lu) STORED %s@%s\n", __METHOD__, $this->getThreadId(), serialize($this->storage->fetch($this->stored)), $this->getStorageId());
 		} else printf("%s (%lu) NO STORAGE\n", __METHOD__, $this->getThreadId());
 	}
 	
