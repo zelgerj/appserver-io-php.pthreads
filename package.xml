@@ -13,8 +13,8 @@
  <date>2014-03-09</date>
  <time>06:45:00</time>
  <version>
-  <release>1.0.1</release>
-  <api>1.0.1</api>
+  <release>1.0.2</release>
+  <api>1.0.2</api>
  </version>
  <stability>
   <release>stable</release>
@@ -22,8 +22,7 @@
  </stability>
  <license uri="http://www.php.net/license">PHP License</license>
  <notes>
-  Fix fault in logic of Pool
-  Fix segfaut in synchronized blocks on exception #236
+  fixed missing refCount release on storage dtor
  </notes>
  <contents>
   <dir name="/">
