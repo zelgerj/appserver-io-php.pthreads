@@ -43,6 +43,8 @@ typedef struct _pthreads_storage {
 	    double  dval;
 	} simple;
 	void    *data;
+	zval    *zval;
+	TSRMLS_D;
 } pthreads_storage;
 
 #ifndef Z_OBJ_P
@@ -415,6 +417,9 @@ static void pthreads_store_create(pthreads_storage *storage, zval *unstore, zend
 		storage->exists = 0;
 		storage->data = NULL;
 		
+		storage->zval = NULL;
+		storage->tsrm_ls = TSRMLS_C;
+
 		switch((storage->type = Z_TYPE_P(unstore))){
 			case IS_NULL: { /* nothing to do */ } break;
 			
@@ -462,6 +467,7 @@ static void pthreads_store_create(pthreads_storage *storage, zval *unstore, zend
 					} else {
 						Z_OBJ_HT_P(unstore)->add_ref(
 						    unstore TSRMLS_CC);
+						storage->zval = unstore;
 					}
 				}
 			} break;
@@ -620,6 +626,7 @@ static int pthreads_store_tostring(zval *pzval, char **pstring, size_t *slength,
 static int pthreads_store_tozval(zval *pzval, char *pstring, size_t slength TSRMLS_DC) {
 	int result = SUCCESS;
 	ulong refcount = Z_REFCOUNT_P(pzval);
+
 	if (pstring) {
 		const unsigned char* pointer = (const unsigned char*) pstring;
 		if (pointer) {
@@ -858,6 +865,11 @@ static void pthreads_store_storage_dtor (pthreads_storage *storage){
 			case IS_RESOURCE:
 				if (storage->data) {
 					free(storage->data);
+				}
+				if (storage->zval && Z_TYPE_P(storage->zval) == IS_OBJECT) {
+					if (Z_REFCOUNT_P(storage->zval) > 0) {
+						Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
+					}
 				}
 			break;
 		}
