@@ -849,7 +849,7 @@ static int pthreads_store_remove_complex_recursive(zval **pzval TSRMLS_DC) {
 			if (thash) {
 				zend_hash_apply(thash, (apply_func_t)pthreads_store_remove_complex TSRMLS_CC);
 			}
-			
+
 		break;
 	}
 	return ZEND_HASH_APPLY_KEEP;
