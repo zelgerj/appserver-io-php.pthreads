@@ -104,8 +104,8 @@ zend_uint pthreads_modifiers_get(pthreads_modifiers modifiers, const char *metho
 	zend_uint *modified;
 	size_t mlength = strlen(method);
 
-	if (modifiers->modified == NULL) {
-		zend_error(E_WARNING, "pthreads detected an empty hashtable while try to get method '%s' in modifiers modified.", method);
+	if (modifiers == NULL) {
+		zend_error(E_WARNING, "pthreads detected an empty hashtable while try to get method '%s' in modified modifiers.", method);
 	} else {
 		if (zend_hash_find(
 				&modifiers->modified,
