@@ -507,6 +507,7 @@ static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
 	    pthreads_lock_free(base->lock TSRMLS_CC);
 	    pthreads_state_free(base->state  TSRMLS_CC);
 	    pthreads_modifiers_free(base->modifiers TSRMLS_CC);
+	    // php_printf("pthreads_base_dtor\n");
 	    pthreads_store_free(base->store TSRMLS_CC);
 	    pthreads_synchro_free(base->synchro TSRMLS_CC);
 	    pthreads_resources_free(base->resources TSRMLS_CC);
@@ -827,11 +828,16 @@ static void * pthreads_routine(void *arg) {
 					    zend_bool terminated = 0;
 						/* graceful fatalities */
 						zend_try {
+					    	// php_printf("Thread start: %s\n", current_classname);
+
 						    /* ::run */
 							zend_call_method(
 								&ZEG->This, ZEG->scope, NULL, 
 								ZEND_STRL("run"), 
 								&zresult, 0, NULL, NULL TSRMLS_CC);
+
+							// php_printf("Thread end: %s\n", current_classname);
+
 						} zend_catch {
 						    /* catches fatal errors and uncaught exceptions */
 							terminated = 1;
