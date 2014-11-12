@@ -122,10 +122,7 @@ int pthreads_store_delete(pthreads_store store, char *key, int keyl TSRMLS_DC) {
 
 			if (zend_hash_find(&store->table, key, keyl + 1, (void**) &storage)
 					== SUCCESS) {
-				// delete zval ref before del zend hash entry
-				if (storage->zval) {
-					storage->zval = NULL;
-				}
+				storage->zval = NULL;
 
 				if (zend_hash_del(&store->table, key, keyl+1) != SUCCESS) {
 					result = FAILURE;
@@ -201,19 +198,14 @@ int pthreads_store_write(pthreads_store store, char *key, int keyl,
 			// delete zval ref before del zend hash entry
 			if (zend_hash_find(&store->table, key, keyl + 1,
 					(void**) &old_storage) == SUCCESS) {
-				if (old_storage->zval) {
-					old_storage->zval = NULL;
-				}
+				old_storage->zval = NULL;
 			}
 
 			if (zend_hash_update(&store->table, key, keyl + 1,
 					(void** ) &storage, sizeof(pthreads_storage), NULL)
 					== SUCCESS) {
 				result = SUCCESS;
-
 			} else {
-
-				// php_printf("pthreads_store_create free(store)");
 				free(store);
 			}
 
@@ -444,11 +436,37 @@ void pthreads_store_tohash(pthreads_store store, HashTable *hash TSRMLS_DC) {
 	}
 } /* }}} */
 
+
+/* {{{ resets the zval given in storage element and unlink zval pointer */
+int pthreads_storage_zval_reset(pthreads_storage *storage TSRMLS_DC) /* {{{ */
+{
+	// check if zval is not a null pointer and zval is type object
+	if (storage->zval && (Z_TYPE_P(storage->zval) == IS_OBJECT)) {
+		// check if refcount is available and greater than 0
+		if (Z_REFCOUNT_P(storage->zval) > 0) {
+			// dec refcount on storage dtor of objects
+			Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
+		}
+	}
+	// unlink pointer
+	storage->zval = NULL;
+	return ZEND_HASH_APPLY_KEEP;
+}
+
+/* {{{ resets the zval given in storage elements and unlink zval pointer */
+void pthreads_store_zval_reset(pthreads_store store TSRMLS_DC) /* {{{ */
+{
+	if (store) {
+		// iterate zend hash and clean up zvals
+		zend_hash_apply(&store->table, (apply_func_t) pthreads_storage_zval_reset TSRMLS_CC);
+	}
+}
+/* }}} */
+
 /* {{{ free store storage for a thread */
 void pthreads_store_free(pthreads_store store TSRMLS_DC) {
 	if (store) {
 		zend_bool locked;
-
 		if (pthreads_lock_acquire(store->lock, &locked TSRMLS_CC)) {
 			zend_hash_destroy(&store->table);
 			pthreads_lock_release(store->lock, locked TSRMLS_CC);
@@ -470,9 +488,8 @@ static void pthreads_store_create(pthreads_storage *storage, zval *unstore,
 		storage->length = 0;
 		storage->exists = 0;
 		storage->data = NULL;
-		storage->classname = "";
-
 		storage->zval = NULL;
+		storage->classname = NULL;
 		storage->tsrm_ls = TSRMLS_C;
 
 		switch ((storage->type = Z_TYPE_P(unstore))) {
@@ -527,8 +544,10 @@ static void pthreads_store_create(pthreads_storage *storage, zval *unstore,
 				} else {
 					Z_OBJ_HT_P(unstore)->add_ref(unstore TSRMLS_CC);
 					storage->zval = unstore;
-					storage->classname = Z_OBJ_CLASS_NAME_P(unstore);
-					// php_printf("pthreads_store_create IS_OBJECT: %s\n", Z_OBJ_CLASS_NAME_P(unstore));
+					storage->classname = malloc (1 + strlen(Z_OBJ_CLASS_NAME_P(unstore)));
+					if (storage->classname)  {
+						strcpy(storage->classname, Z_OBJ_CLASS_NAME_P(unstore));
+					}
 				}
 			}
 		}
@@ -983,29 +1002,18 @@ static int pthreads_store_remove_complex_recursive(zval **pzval TSRMLS_DC) {
 /* {{{ Will free store element */
 static void pthreads_store_storage_dtor(pthreads_storage *storage) {
 	if (storage) {
-
-		/* TSRM */
-		void ***tsrm_ls = storage->tsrm_ls;
-
 		switch (storage->type) {
-		case IS_OBJECT: {
-			// check if ref. zval is object too... should be
-			if (storage->zval && Z_TYPE_P(storage->zval) == IS_OBJECT) {
-				// check if refcount is available and greater 0
-				if (Z_REFCOUNT_P(storage->zval) > 0) {
-					// php_printf("########### pthreads_store_storage_dtor ### %s ########\n", storage->classname);
-					// dec refcount on storage dtor of objects
-					Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, tsrm_ls);
+			case IS_OBJECT: {
+				// release possible zval refs
+				pthreads_storage_zval_reset(storage, storage->tsrm_ls);
+			}
+			case IS_STRING:
+			case IS_ARRAY:
+			case IS_RESOURCE:
+				if (storage->data) {
+					free(storage->data);
 				}
-			}
-		}
-		case IS_STRING:
-		case IS_ARRAY:
-		case IS_RESOURCE:
-			if (storage->data) {
-				free(storage->data);
-			}
-			break;
+				break;
 		}
 	}
 } /* }}} */

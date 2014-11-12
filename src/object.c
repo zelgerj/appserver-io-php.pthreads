@@ -507,7 +507,6 @@ static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
 	    pthreads_lock_free(base->lock TSRMLS_CC);
 	    pthreads_state_free(base->state  TSRMLS_CC);
 	    pthreads_modifiers_free(base->modifiers TSRMLS_CC);
-	    // php_printf("pthreads_base_dtor\n");
 	    pthreads_store_free(base->store TSRMLS_CC);
 	    pthreads_synchro_free(base->synchro TSRMLS_CC);
 	    pthreads_resources_free(base->resources TSRMLS_CC);
@@ -581,7 +580,7 @@ int pthreads_start(PTHREAD thread TSRMLS_DC) {
 	if (dostart) {
 		if (pthreads_lock_acquire(thread->lock, &tlocked TSRMLS_CC)) {
 			started = pthread_create(&thread->thread, NULL, pthreads_routine, (void*)thread);
-			if (started == SUCCESS) 
+			if (started == SUCCESS)
 				pthreads_state_wait(thread->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 			pthreads_lock_release(thread->lock, tlocked TSRMLS_CC);
 		}
@@ -687,6 +686,8 @@ int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const uns
 	
 	return SUCCESS;
 } /* }}} */
+
+/* }}} */
 
 #ifdef PTHREADS_KILL_SIGNAL
 static inline void pthreads_kill_handler(int signo) /* {{{ */
@@ -828,15 +829,17 @@ static void * pthreads_routine(void *arg) {
 					    zend_bool terminated = 0;
 						/* graceful fatalities */
 						zend_try {
-					    	// php_printf("Thread start: %s\n", current_classname);
-
 						    /* ::run */
 							zend_call_method(
 								&ZEG->This, ZEG->scope, NULL, 
 								ZEND_STRL("run"), 
 								&zresult, 0, NULL, NULL TSRMLS_CC);
 
-							// php_printf("Thread end: %s\n", current_classname);
+							/* ::__shutdown */
+							zend_call_method(
+								&ZEG->This, ZEG->scope, NULL,
+								ZEND_STRL("__shutdown"),
+								&zresult, 0, NULL, NULL TSRMLS_CC);
 
 						} zend_catch {
 						    /* catches fatal errors and uncaught exceptions */
@@ -849,7 +852,11 @@ static void * pthreads_routine(void *arg) {
 							}
 						} zend_end_try();
 						
+
 						if (current) {
+						    /* free ref counts on zvals in store storage elements before they get freed by php shutdown */
+						    pthreads_store_zval_reset(current->store TSRMLS_CC);
+
 						    /* set terminated state */
 						    if (terminated) {
 						        pthreads_state_set(
@@ -857,16 +864,13 @@ static void * pthreads_routine(void *arg) {
 							    /* save error information */
 							    pthreads_error_save(current->error TSRMLS_CC);
 						    }
-						    
 						    /* unset running for waiters */
 						    pthreads_state_unset(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 						}
-
 						/* deal with references to stackable */
 						if (!terminated && inwork) {
 							zval_ptr_dtor(&ZEG->This);
 						} else inwork = 1;
-
 						/* deal with zresult (ignored) */
 						if (zresult) {
 							zval_ptr_dtor(&zresult);
@@ -881,7 +885,7 @@ static void * pthreads_routine(void *arg) {
 		/**
 		* Thread Block End
 		**/
-		
+
 	    /*
 		* Free original reference to $this
 		*/
