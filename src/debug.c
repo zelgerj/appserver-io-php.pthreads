@@ -4,7 +4,7 @@
 #ifndef HAVE_PTHREADS_DEBUG_H
 #	include <src/debug.h>
 #endif
-
+/*
 FILE *pthreads_log = NULL;
 
 static void pthreads_debug_log(const char *format, va_list arg)
@@ -16,5 +16,6 @@ static void pthreads_debug_log(const char *format, va_list arg)
     	fprintf(pthreads_log, "%s\n", message);
     }
 }
+*/
 
 #endif
