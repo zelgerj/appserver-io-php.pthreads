@@ -448,7 +448,7 @@ int pthreads_storage_zval_reset(pthreads_storage *storage TSRMLS_DC) /* {{{ */
 			Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
 		}
 	}
-	// unlink pointer
+	// unlink pointer after del ref
 	storage->zval = NULL;
 	return ZEND_HASH_APPLY_KEEP;
 }

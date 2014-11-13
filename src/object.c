@@ -823,6 +823,7 @@ static void * pthreads_routine(void *arg) {
 				do {
 					PTHREAD current = PTHREADS_FETCH_FROM(ZEG->This);
 					zval *zresult = NULL;
+					zval *sresult = NULL;
 					
 					pthreads_state_set(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 					{
@@ -833,12 +834,6 @@ static void * pthreads_routine(void *arg) {
 							zend_call_method(
 								&ZEG->This, ZEG->scope, NULL, 
 								ZEND_STRL("run"), 
-								&zresult, 0, NULL, NULL TSRMLS_CC);
-
-							/* ::__shutdown */
-							zend_call_method(
-								&ZEG->This, ZEG->scope, NULL,
-								ZEND_STRL("__shutdown"),
 								&zresult, 0, NULL, NULL TSRMLS_CC);
 
 						} zend_catch {
@@ -854,6 +849,7 @@ static void * pthreads_routine(void *arg) {
 						
 
 						if (current) {
+
 						    /* free ref counts on zvals in store storage elements before they get freed by php shutdown */
 						    pthreads_store_zval_reset(current->store TSRMLS_CC);
 
@@ -874,6 +870,9 @@ static void * pthreads_routine(void *arg) {
 						/* deal with zresult (ignored) */
 						if (zresult) {
 							zval_ptr_dtor(&zresult);
+						}
+						if (sresult) {
+							zval_ptr_dtor(&sresult);
 						}
 					}
 				} while(worker && pthreads_stack_next(thread, this_ptr TSRMLS_CC));
