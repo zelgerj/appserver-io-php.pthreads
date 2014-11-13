@@ -241,6 +241,8 @@ PHP_MINIT_FUNCTION(pthreads)
 		* Global Init
 		*/
 		pthreads_instance = TSRMLS_C;
+		// init log file
+		// pthreads_log = fopen("/tmp/pthreads_debug.log", "a+");
 	}
 
 #ifndef HAVE_SPL

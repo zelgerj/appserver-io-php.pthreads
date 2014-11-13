@@ -51,4 +51,4 @@ PHP_MINFO_FUNCTION(pthreads);
 extern zend_module_entry pthreads_module_entry;
 #define phpext_pthreads_ptr &pthreads_module_entry
 
-#endif 
+#endif

@@ -440,12 +440,19 @@ void pthreads_store_tohash(pthreads_store store, HashTable *hash TSRMLS_DC) {
 /* {{{ resets the zval given in storage element and unlink zval pointer */
 int pthreads_storage_zval_reset(pthreads_storage *storage TSRMLS_DC) /* {{{ */
 {
-	// check if zval is not a null pointer and zval is type object
-	if (storage->zval && (Z_TYPE_P(storage->zval) == IS_OBJECT)) {
-		// check if refcount is available and greater than 0
-		if (Z_REFCOUNT_P(storage->zval) > 0) {
-			// dec refcount on storage dtor of objects
-			Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
+	// check if zval is not a null pointer
+	if (storage->zval) {
+
+		// log debug information
+		pthreads_debug_log("try to destruct storage for zval at %p in thread %lu '%s'", storage->zval, pthreads_self(), storage->classname);
+
+		// check if zval is type of object
+		if (Z_TYPE_P(storage->zval) == IS_OBJECT) {
+			// check if refcount is available and greater than 0
+			if (Z_REFCOUNT_P(storage->zval) > 0) {
+				// dec refcount on storage dtor of objects
+				Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
+			}
 		}
 	}
 	// unlink pointer after del ref
