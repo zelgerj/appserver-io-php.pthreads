@@ -103,12 +103,17 @@ int pthreads_modifiers_set(pthreads_modifiers modifiers, const char *method, zen
 zend_uint pthreads_modifiers_get(pthreads_modifiers modifiers, const char *method TSRMLS_DC) {
 	zend_uint *modified;
 	size_t mlength = strlen(method);
-	if (zend_hash_find(
-			&modifiers->modified,
-			method, mlength, 
-			(void*) &modified
-		)==SUCCESS) {
-		return *modified;
+
+	if (modifiers == NULL) {
+		zend_error(E_WARNING, "pthreads detected an empty hashtable while try to get method '%s' in modified modifiers.", method);
+	} else {
+		if (zend_hash_find(
+				&modifiers->modified,
+				method, mlength,
+				(void*) &modified
+			)==SUCCESS) {
+			return *modified;
+		}
 	}
 	return 0;
 } /* }}} */

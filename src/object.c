@@ -580,7 +580,7 @@ int pthreads_start(PTHREAD thread TSRMLS_DC) {
 	if (dostart) {
 		if (pthreads_lock_acquire(thread->lock, &tlocked TSRMLS_CC)) {
 			started = pthread_create(&thread->thread, NULL, pthreads_routine, (void*)thread);
-			if (started == SUCCESS) 
+			if (started == SUCCESS)
 				pthreads_state_wait(thread->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 			pthreads_lock_release(thread->lock, tlocked TSRMLS_CC);
 		}
@@ -686,6 +686,8 @@ int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const uns
 	
 	return SUCCESS;
 } /* }}} */
+
+/* }}} */
 
 #ifdef PTHREADS_KILL_SIGNAL
 static inline void pthreads_kill_handler(int signo) /* {{{ */
@@ -821,10 +823,15 @@ static void * pthreads_routine(void *arg) {
 				do {
 					PTHREAD current = PTHREADS_FETCH_FROM(ZEG->This);
 					zval *zresult = NULL;
+					zval *sresult = NULL;
 					
 					pthreads_state_set(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 					{
 					    zend_bool terminated = 0;
+
+					    // debug logging
+						pthreads_debug_log("[pthreads_routine] [%p] (%s) zend_call_method 'run'",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
+
 						/* graceful fatalities */
 						zend_try {
 						    /* ::run */
@@ -832,10 +839,14 @@ static void * pthreads_routine(void *arg) {
 								&ZEG->This, ZEG->scope, NULL, 
 								ZEND_STRL("run"), 
 								&zresult, 0, NULL, NULL TSRMLS_CC);
+
 						} zend_catch {
 						    /* catches fatal errors and uncaught exceptions */
 							terminated = 1;
 							
+							// debug logging
+							pthreads_debug_log("[pthreads_routine] [%p] (%s) fatal error or uncaught exception",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
+
 							/* danger lurking ... */
 							if (PTHREADS_ZG(signal) == PTHREADS_KILL_SIGNAL) {
 								/* like, totally bail man ! */
@@ -843,7 +854,15 @@ static void * pthreads_routine(void *arg) {
 							}
 						} zend_end_try();
 						
+
 						if (current) {
+
+							// debug logging
+							pthreads_debug_log("[pthreads_routine] [%p] (%s) reset store zvals",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
+
+						    /* free ref counts on zvals in store storage elements before they get freed by php shutdown */
+						    pthreads_store_zval_reset(current->store TSRMLS_CC);
+
 						    /* set terminated state */
 						    if (terminated) {
 						        pthreads_state_set(
@@ -851,19 +870,19 @@ static void * pthreads_routine(void *arg) {
 							    /* save error information */
 							    pthreads_error_save(current->error TSRMLS_CC);
 						    }
-						    
 						    /* unset running for waiters */
 						    pthreads_state_unset(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 						}
-
 						/* deal with references to stackable */
 						if (!terminated && inwork) {
 							zval_ptr_dtor(&ZEG->This);
 						} else inwork = 1;
-
 						/* deal with zresult (ignored) */
 						if (zresult) {
 							zval_ptr_dtor(&zresult);
+						}
+						if (sresult) {
+							zval_ptr_dtor(&sresult);
 						}
 					}
 				} while(worker && pthreads_stack_next(thread, this_ptr TSRMLS_CC));
@@ -875,7 +894,7 @@ static void * pthreads_routine(void *arg) {
 		/**
 		* Thread Block End
 		**/
-		
+
 	    /*
 		* Free original reference to $this
 		*/

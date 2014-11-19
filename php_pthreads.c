@@ -22,6 +22,10 @@
 #	include <src/pthreads.h>
 #endif
 
+#ifndef HAVE_PTHREADS_DEBUG_H
+#	include <src/debug.h>
+#endif
+
 #ifndef HAVE_PTHREADS_LOCK_H
 #	include <src/lock.h>
 #endif
@@ -57,6 +61,15 @@
 #ifndef HAVE_PTHREADS_GLOBALS_H
 #	include <src/globals.h>
 #endif
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+PHP_INI_BEGIN()
+PHP_INI_ENTRY("pthreads.debug_enable", "", PHP_INI_ALL, NULL)
+PHP_INI_ENTRY("pthreads.debug_log", "", PHP_INI_ALL, NULL)
+PHP_INI_END()
 
 zend_module_entry pthreads_module_entry = {
   STANDARD_MODULE_HEADER,
@@ -121,6 +134,8 @@ static inline void pthreads_globals_ctor(zend_pthreads_globals *pg TSRMLS_DC) {
 
 PHP_MINIT_FUNCTION(pthreads)
 {
+	REGISTER_INI_ENTRIES();
+
 	zend_class_entry te;
 	zend_class_entry me;
 	zend_class_entry ce;

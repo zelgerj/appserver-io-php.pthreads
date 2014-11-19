@@ -79,6 +79,10 @@ int pthreads_store_pop(zval *object, zval **member TSRMLS_DC); /* }}} */
 /* {{{ count properties */
 int pthreads_store_count(zval *object, long *count TSRMLS_DC); /* }}} */
 
+/* {{{ resets zval in store */
+void pthreads_store_zval_reset(pthreads_store store TSRMLS_DC); /* }}} */
+
 /* {{{ free buffers */
 void pthreads_store_free(pthreads_store store TSRMLS_DC); /* }}} */
+
 #endif

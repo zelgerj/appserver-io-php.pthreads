@@ -325,6 +325,7 @@ int pthreads_call_method(PTHREADS_CALL_METHOD_PASSTHRU_D) {
 	
 	if (getThis()) {
 		PTHREAD thread = PTHREADS_FETCH;
+
 		if (thread) {
 			switch((access=pthreads_modifiers_get(thread->modifiers, method TSRMLS_CC))){
 				case ZEND_ACC_PRIVATE:
