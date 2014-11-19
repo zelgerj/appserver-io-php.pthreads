@@ -34,6 +34,10 @@
 #	include <src/resources.h>
 #endif
 
+#ifndef HAVE_PTHREADS_DEBUG_H
+#	include <src/debug.h>
+#endif
+
 typedef struct _pthreads_storage {
 	zend_uchar type;
 	size_t length;
@@ -442,10 +446,6 @@ int pthreads_storage_zval_reset(pthreads_storage *storage TSRMLS_DC) /* {{{ */
 {
 	// check if zval is not a null pointer
 	if (storage->zval) {
-
-		// log debug information
-		pthreads_debug_log("try to destruct storage for zval at %p in thread %lu '%s'", storage->zval, pthreads_self(), storage->classname);
-
 		// check if zval is type of object
 		if (Z_TYPE_P(storage->zval) == IS_OBJECT) {
 			// check if refcount is available and greater than 0
@@ -453,7 +453,23 @@ int pthreads_storage_zval_reset(pthreads_storage *storage TSRMLS_DC) /* {{{ */
 				// dec refcount on storage dtor of objects
 				Z_OBJ_HT_P(storage->zval)->del_ref(storage->zval, storage->tsrm_ls);
 			}
+			if (storage->classname) {
+				free(storage->classname);
+			}
 		}
+	}
+	// unlink pointer after del ref
+	storage->zval = NULL;
+}
+
+/* {{{ resets the zval given in storage element and unlink zval pointer */
+int pthreads_store_zval_reset_apply(pthreads_storage *storage TSRMLS_DC, int num_args, va_list args, zend_hash_key *hash_key) /* {{{ */
+{
+	// check if zval is not a null pointer
+	if (storage->zval) {
+		// log debug information
+		pthreads_debug_log("[pthreads_storage_zval_reset] try to del_ref on storage [%p] zval [%p] (%s / %s)", storage, storage->zval, hash_key->arKey, storage->classname);
+		pthreads_storage_zval_reset(storage TSRMLS_CC);
 	}
 	// unlink pointer after del ref
 	storage->zval = NULL;
@@ -465,7 +481,7 @@ void pthreads_store_zval_reset(pthreads_store store TSRMLS_DC) /* {{{ */
 {
 	if (store) {
 		// iterate zend hash and clean up zvals
-		zend_hash_apply(&store->table, (apply_func_t) pthreads_storage_zval_reset TSRMLS_CC);
+		zend_hash_apply_with_arguments(&store->table TSRMLS_CC, (apply_func_args_t)pthreads_store_zval_reset_apply, 0);
 	}
 }
 /* }}} */
@@ -555,6 +571,7 @@ static void pthreads_store_create(pthreads_storage *storage, zval *unstore,
 					if (storage->classname)  {
 						strcpy(storage->classname, Z_OBJ_CLASS_NAME_P(unstore));
 					}
+					pthreads_debug_log("[pthreads_store_create] add_ref on storage [%p] zval [%p] (%s)", storage, storage->zval, storage->classname);
 				}
 			}
 		}
@@ -1011,8 +1028,12 @@ static void pthreads_store_storage_dtor(pthreads_storage *storage) {
 	if (storage) {
 		switch (storage->type) {
 			case IS_OBJECT: {
-				// release possible zval refs
-				pthreads_storage_zval_reset(storage, storage->tsrm_ls);
+				if (storage->zval) {
+					// log debug information
+					pthreads_debug_log("[pthreads_store_storage_dtor] try to del_ref on storage [%p] zval [%p] (%s)", storage, storage->zval, storage->classname);
+					// release possible zval refs
+					pthreads_storage_zval_reset(storage, storage->tsrm_ls);
+				}
 			}
 			case IS_STRING:
 			case IS_ARRAY:

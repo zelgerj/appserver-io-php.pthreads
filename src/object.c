@@ -828,6 +828,10 @@ static void * pthreads_routine(void *arg) {
 					pthreads_state_set(current->state, PTHREADS_ST_RUNNING TSRMLS_CC);
 					{
 					    zend_bool terminated = 0;
+
+					    // debug logging
+						pthreads_debug_log("[pthreads_routine] [%p] (%s) zend_call_method 'run'",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
+
 						/* graceful fatalities */
 						zend_try {
 						    /* ::run */
@@ -840,6 +844,9 @@ static void * pthreads_routine(void *arg) {
 						    /* catches fatal errors and uncaught exceptions */
 							terminated = 1;
 							
+							// debug logging
+							pthreads_debug_log("[pthreads_routine] [%p] (%s) fatal error or uncaught exception",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
+
 							/* danger lurking ... */
 							if (PTHREADS_ZG(signal) == PTHREADS_KILL_SIGNAL) {
 								/* like, totally bail man ! */
@@ -849,6 +856,9 @@ static void * pthreads_routine(void *arg) {
 						
 
 						if (current) {
+
+							// debug logging
+							pthreads_debug_log("[pthreads_routine] [%p] (%s) reset store zvals",ZEG->This, Z_OBJ_CLASS_NAME_P(ZEG->This));
 
 						    /* free ref counts on zvals in store storage elements before they get freed by php shutdown */
 						    pthreads_store_zval_reset(current->store TSRMLS_CC);

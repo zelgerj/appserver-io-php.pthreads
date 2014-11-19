@@ -4,18 +4,33 @@
 #ifndef HAVE_PTHREADS_DEBUG_H
 #	include <src/debug.h>
 #endif
-/*
-FILE *pthreads_log = NULL;
 
-static void pthreads_debug_log(const char *format, va_list arg)
+/* {{{ pthreads_debug_log will log to the pthreads log file configured via ini */
+void pthreads_debug_log(const char *format, ...)
 {
-	char *message;
-	vsprintf(message, format, arg);
+	if (INI_INT("pthreads.debug_enable") == 1 && INI_STR("pthreads.debug_log") != "") {
+		TSRMLS_FETCH();
+		va_list argList;
+		char timestr[20], buffer[512], error_message[512];
+		char *logfile = INI_STR("pthreads.debug_log");
+		time_t timer;
+		struct tm* tm_info;
 
-    if (pthreads_log && strlen(message) > 0) {
-    	fprintf(pthreads_log, "%s\n", message);
-    }
-}
-*/
+		time(&timer);
+		tm_info = localtime(&timer);
+
+		strftime(timestr, 20, "%F %H:%M:%S", tm_info);
+		sprintf(error_message, "[%s %lu] ", timestr, pthreads_self());
+
+		va_start(argList, format);
+		vsprintf(buffer, format, argList);
+		va_end(argList);
+
+		strcat(buffer, "\n");
+		strcat(error_message, buffer);
+
+		_php_error_log(3, error_message, logfile, NULL TSRMLS_CC);
+	}
+} /* }}} */
 
 #endif
