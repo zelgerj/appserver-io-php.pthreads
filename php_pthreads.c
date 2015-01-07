@@ -134,14 +134,14 @@ static inline void pthreads_globals_ctor(zend_pthreads_globals *pg TSRMLS_DC) {
 
 PHP_MINIT_FUNCTION(pthreads)
 {
-	REGISTER_INI_ENTRIES();
-
 	zend_class_entry te;
 	zend_class_entry me;
 	zend_class_entry ce;
 	zend_class_entry se;
 	zend_class_entry we;
 	zend_class_entry pe;
+
+	REGISTER_INI_ENTRIES();
 	
 	REGISTER_LONG_CONSTANT("PTHREADS_INHERIT_ALL", PTHREADS_INHERIT_ALL, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PTHREADS_INHERIT_NONE", PTHREADS_INHERIT_NONE, CONST_CS | CONST_PERSISTENT);
