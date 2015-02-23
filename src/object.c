@@ -828,23 +828,28 @@ static void * pthreads_routine(void *arg) {
 		
 		/* $this original pointer */
 		zval *this_ptr = NULL, 
-			 *this = NULL;		
+			 *this = NULL;
+
+		/* init threadsafe manager local storage */
+		void ***tsrm_ls = NULL;
 		
 		/* executor globals */
 		zend_executor_globals *ZEG = NULL;
 
 		/**
-		* Startup Block Begin
-		**/
-		TSRMLS_FETCH();
-		
-		/* set thread local storage */
-		thread->tls = TSRMLS_C;
+		 * Startup Block Begin
+		 **/
 		
 #ifdef PTHREADS_PEDANTIC
 		/* acquire a global lock */
 		pthreads_globals_lock(&glocked TSRMLS_CC);
 #endif
+
+		/* create new context */
+		thread->tls = tsrm_ls = tsrm_new_interpreter_context();
+
+		/* set interpreter context */
+		tsrm_set_interpreter_context(tsrm_ls);
 
 		/* set thread id for this object */
 		thread->tid = pthreads_self();
@@ -891,23 +896,23 @@ static void * pthreads_routine(void *arg) {
 #endif
 
 		/**
-		* Startup Block End
-		**/
+		 * Startup Block End
+		 **/
 		ZEG = PTHREADS_EG_ALL(TSRMLS_C);
 		
-		/*
-		* Allocate $this
-		*/
+		/**
+		 * Allocate $this
+		 **/
 		ALLOC_INIT_ZVAL(this);
 		
-		/*
-		* Assign $this
-		*/
+		/**
+		 * Assign $this
+		 */
 		this_ptr = this;
 		
 		/**
-		* Thread Block Begin
-		**/
+		 * Thread Block Begin
+		 **/
 		zend_first_try {
 			/*
 			* Set worker indicator
@@ -988,19 +993,19 @@ static void * pthreads_routine(void *arg) {
 		} zend_end_try();
 		
 		/**
-		* Thread Block End
-		**/
+		 * Thread Block End
+		 **/
 		
 	    /*
-		* Free original reference to $this
-		*/
+		 * Free original reference to $this
+		 */
 		if (!BG(user_shutdown_function_names)) {
 			zval_ptr_dtor(&this);
 		}
 		
 		/**
-		* Shutdown Block Begin
-		**/
+		 * Shutdown Block Begin
+		 **/
 		PG(report_memleaks) = 0;
 		
 #ifdef PTHREADS_PEDANTIC
@@ -1010,14 +1015,17 @@ static void * pthreads_routine(void *arg) {
 		/* shutdown request */
 	    php_request_shutdown(TSRMLS_C);
 	    
+	    /* free interpreter */
+		tsrm_free_interpreter_context(tsrm_ls);
+
 #ifdef PTHREADS_PEDANTIC
 		/* release global lock */
 		pthreads_globals_unlock(glocked TSRMLS_CC);
 #endif
 
 		/**
-		* Shutdown Block End
-		**/
+		 * Shutdown Block End
+	   	 **/
 	}
 
 	pthread_exit(NULL);
