@@ -1,5 +1,7 @@
 # Threading for PHP - Share Nothing, Do Everything :)
 
+[![Build Status](https://img.shields.io/travis/appserver-io-php/pthreads/master.svg?style=flat-square)](http://travis-ci.org/appserver-io-php/pthreads)
+
 This project provides multi-threading that is compatible with PHP based on Posix Threads.
 
 ## Highlights
