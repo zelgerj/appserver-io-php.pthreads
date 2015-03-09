@@ -1,3 +1,16 @@
+# Version 2.0.10
+
+Based on original krakjoe/pthreads 2.0.10 tag version.
+
+## Bugfixes
+
+* Fixed performance problem when having many threads
+* Keep compatibility for statics and refs handling
+
+## Features
+
+* None
+
 # Version 2.0.9
 
 ## Bugfixes
