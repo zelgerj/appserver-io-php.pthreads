@@ -38,6 +38,10 @@
 #	include <src/store.h>
 #endif
 
+#ifndef HAVE_PTHREADS_COPY_H
+#   include <src/copy.h>
+#endif
+
 /* {{{ prepared property info ctor */
 static void pthreads_preparation_property_info_copy_ctor(zend_property_info *pi); /* }}} */
 /* {{{ prepared property info dtor */
@@ -150,22 +154,7 @@ static zend_class_entry* pthreads_copy_entry(PTHREAD thread, zend_class_entry *c
 	/* copy uternals ! */
 	{
 		zend_uint umethod = 0;
-		void *usources[18] = {
-			candidate->constructor,
-			candidate->destructor,
-			candidate->clone,
-
-			candidate->__get,
-			candidate->__set,
-			candidate->__unset,
-			candidate->__isset,
-			candidate->__call,
-			candidate->__callstatic,
-			candidate->__tostring,
-
-			candidate->serialize_func,
-			candidate->unserialize_func,
-
+		void *usources[7] = {
 			candidate->create_object,
 			candidate->serialize,
 			candidate->unserialize,
@@ -177,37 +166,60 @@ static zend_class_entry* pthreads_copy_entry(PTHREAD thread, zend_class_entry *c
 		do {
 			if (usources[umethod]) {
 				switch(umethod){
-					/* user internals, I call them uternals */
-					case 0: zend_hash_update(&prepared->function_table, "__construct", sizeof("__construct"), &candidate->constructor, sizeof(zend_function), (void**) &prepared->constructor); break;
-					case 1: zend_hash_update(&prepared->function_table, "__destruct", sizeof("__destruct"), &candidate->destructor, sizeof(zend_function), (void**) &prepared->destructor); break;
-					case 2: zend_hash_update(&prepared->function_table, "__clone", sizeof("__clone"), &candidate->clone, sizeof(zend_function), (void**) &prepared->clone); break;
-					case 3: zend_hash_update(&prepared->function_table, "__get", sizeof("__get"), &candidate->__get, sizeof(zend_function), (void**) &prepared->__get); break;
-					case 4: zend_hash_update(&prepared->function_table, "__set", sizeof("__set"), &candidate->__set, sizeof(zend_function), (void**) &prepared->__set); break;
-					case 5: zend_hash_update(&prepared->function_table, "__unset", sizeof("__unset"), &candidate->__unset, sizeof(zend_function), (void**) &prepared->__unset); break;
-					case 6: zend_hash_update(&prepared->function_table, "__isset", sizeof("__isset"), &candidate->__isset, sizeof(zend_function), (void**) &prepared->__isset); break;
-					case 7: zend_hash_update(&prepared->function_table, "__call", sizeof("__call"), &candidate->__call, sizeof(zend_function), (void**) &prepared->__call); break;
-					case 8: zend_hash_update(&prepared->function_table, "__callstatic", sizeof("__callstatic"), &candidate->__callstatic, sizeof(zend_function), (void**) &prepared->__callstatic); break;
-					case 9: zend_hash_update(&prepared->function_table, "__tostring", sizeof("__tostring"), &candidate->__tostring, sizeof(zend_function), (void**) &prepared->__tostring); break;
-					
-					case 10: zend_hash_update(&prepared->function_table, "serialize", sizeof("serialize"), &candidate->serialize_func, sizeof(zend_function), (void**) &prepared->serialize_func); break;
-					case 11: zend_hash_update(&prepared->function_table, "unserialize", sizeof("unserialize"), &candidate->unserialize_func, sizeof(zend_function), (void**) &prepared->unserialize_func); break;
-					/* handlers */
-					case 12: prepared->create_object = candidate->create_object; break;
-					case 13: prepared->serialize = candidate->serialize; break;
-					case 14: prepared->unserialize = candidate->unserialize; break;
-					case 15: {
+					case 0: prepared->create_object = candidate->create_object; break;
+					case 1: prepared->serialize = candidate->serialize; break;
+					case 2: prepared->unserialize = candidate->unserialize; break;
+					case 3: {
 						prepared->get_iterator = candidate->get_iterator;
 						prepared->iterator_funcs = candidate->iterator_funcs;
 					} break;
-					case 16: prepared->interface_gets_implemented = candidate->interface_gets_implemented; break;
-					case 17: prepared->get_static_method = candidate->get_static_method; break;
+					case 4: prepared->interface_gets_implemented = candidate->interface_gets_implemented; break;
+					case 5: prepared->get_static_method = candidate->get_static_method; break;
 				}
 			}
-		} while(++umethod < 18);
+		} while(++umethod < 7);
 	}
 	
 	/* copy function table */
-	zend_hash_copy(&prepared->function_table, &candidate->function_table, (copy_ctor_func_t) function_add_ref, &tf, sizeof(zend_function));
+	zend_hash_copy(&prepared->function_table, &candidate->function_table, (copy_ctor_func_t) pthreads_copy_function, &tf, sizeof(zend_function));
+	
+	{
+	    zend_function *func;
+	    char *lcname = NULL;
+	    
+	    if (!prepared->constructor && zend_hash_num_elements(&prepared->function_table)) {
+	        lcname = zend_str_tolower_dup(prepared->name, prepared->name_length);
+	        if (zend_hash_find(&prepared->function_table, lcname, prepared->name_length+1, (void**)&func) == SUCCESS) {
+	            prepared->constructor = func;
+	        } else if (zend_hash_find(&prepared->function_table, "__construct", sizeof("__construct"), (void**)&func) == SUCCESS) {
+	            prepared->constructor = func;
+	        }
+	        efree(lcname);
+	    }
+	    
+#define FIND_AND_SET(f, n) do {\
+    if (!prepared->f && zend_hash_num_elements(&prepared->function_table)) { \
+        if (zend_hash_find(&prepared->function_table, n, sizeof(n), (void**)&func) == SUCCESS) { \
+            prepared->f = func; \
+        } \
+    } \
+} \
+while(0)
+        
+        FIND_AND_SET(clone, "__clone");
+        FIND_AND_SET(__get, "__get");
+        FIND_AND_SET(__set, "__set");
+        FIND_AND_SET(__unset, "__unset");
+        FIND_AND_SET(__isset, "__isset");
+        FIND_AND_SET(__call, "__call");
+        FIND_AND_SET(__callstatic, "__callstatic");
+        FIND_AND_SET(serialize_func, "serialize");
+        FIND_AND_SET(unserialize_func, "unserialize");
+        FIND_AND_SET(__tostring, "__tostring");
+        FIND_AND_SET(destructor, "__destruct");
+        
+#undef FIND_AND_SET
+	}
 	
 	/* copy property info structures */
 	if ((thread->options & PTHREADS_INHERIT_COMMENTS)) {
@@ -255,8 +267,17 @@ static zend_class_entry* pthreads_copy_entry(PTHREAD thread, zend_class_entry *c
 				zval *separated;
 
 				if (zend_hash_get_current_key_ex(&candidate->default_static_members, &n, &l, &i, 0, &position)) {
-					if (pthreads_store_separate(*property, &separated, 1, 0 TSRMLS_CC)==SUCCESS) {
-						zend_hash_update(&prepared->default_static_members, n, l, (void**) &separated, sizeof(zval*), NULL);
+					switch (Z_TYPE_PP(property)) {
+
+					    /* case IS_ARRAY: */
+					    case IS_OBJECT:
+					        zend_hash_update(&prepared->default_static_members, n, l, (void**) &EG(uninitialized_zval_ptr), sizeof(zval*), NULL);
+					        Z_ADDREF_P(EG(uninitialized_zval_ptr));
+					    break;
+
+					    default: if (pthreads_store_separate(*property, &separated, 1, 0 TSRMLS_CC)==SUCCESS) {
+						    zend_hash_update(&prepared->default_static_members, n, l, (void**) &separated, sizeof(zval*), NULL);
+					    }
 					}
 				}
 			}
@@ -293,6 +314,7 @@ static zend_class_entry* pthreads_copy_entry(PTHREAD thread, zend_class_entry *c
 			prepared->default_properties_count = candidate->default_properties_count;
 		} else prepared->default_properties_count = 0;
 		
+		
 		if (candidate->default_static_members_count) {
 			int i;
 			prepared->default_static_members_table = emalloc(
@@ -302,21 +324,35 @@ static zend_class_entry* pthreads_copy_entry(PTHREAD thread, zend_class_entry *c
 			for (i=0; i<prepared->default_static_members_count; i++) {
 				if (candidate->default_static_members_table[i]) {
 					/* we use real separation for a reason */
-					(prepared->default_static_members_table[i]) = (zval*) emalloc(sizeof(zval));
+					switch (Z_TYPE_P(candidate->default_static_members_table[i])) {
+
+					   case IS_OBJECT:
+					   /*  case IS_ARRAY: */
+					       prepared->default_static_members_table[i] =  
+					            EG(uninitialized_zval_ptr);
+					       Z_ADDREF_P(EG(uninitialized_zval_ptr));
+					    break;
+
+					    default: {
+					        prepared->default_static_members_table[i] = (zval*) emalloc(sizeof(zval));
+					        
+					        /* only copy simple variables from statics */
+					        memcpy(
+						        (prepared->default_static_members_table[i]), 
+						        (candidate->default_static_members_table[i]), sizeof(zval));
 					
-					memcpy(
-						(prepared->default_static_members_table[i]), 
-						(candidate->default_static_members_table[i]), sizeof(zval));
-					
-					pthreads_store_separate(
-						prepared->default_static_members_table[i],
-						&prepared->default_static_members_table[i],
-						1, 0 TSRMLS_CC
-					);
+					        pthreads_store_separate(
+						        prepared->default_static_members_table[i],
+						        &prepared->default_static_members_table[i],
+						        1, 0 TSRMLS_CC
+					        );
+					    }
+					}
 				} else prepared->default_static_members_table[i]=NULL;
 			}
 			prepared->static_members_table = prepared->default_static_members_table;
 		} else prepared->default_static_members_count = 0;
+		
 		
 		/* copy user info struct */
 		memcpy(&prepared->info.user, &candidate->info.user, sizeof(candidate->info.user));
@@ -485,7 +521,7 @@ int pthreads_prepare(PTHREAD thread TSRMLS_DC){
 		zend_hash_merge(
 			EG(function_table),
 			PTHREADS_EG(thread->cls, function_table),
-			(copy_ctor_func_t) function_add_ref,
+			(copy_ctor_func_t) pthreads_copy_function,
 			&function, sizeof(zend_function), 0
 		);
 	}

@@ -18,7 +18,7 @@
 #ifndef HAVE_PHP_PTHREADS_H
 #define HAVE_PHP_PTHREADS_H
 #define PHP_PTHREADS_EXTNAME "pthreads"
-#define PHP_PTHREADS_VERSION "2.0.8"
+#define PHP_PTHREADS_VERSION "2.0.10"
 
 PHP_MINIT_FUNCTION(pthreads);
 PHP_MSHUTDOWN_FUNCTION(pthreads);
@@ -44,6 +44,10 @@ PHP_MINFO_FUNCTION(pthreads);
 
 #ifndef HAVE_PTHREADS_CLASS_COND_H
 #	include <classes/cond.h>
+#endif
+
+#ifndef HAVE_PTHREADS_CLASS_COLLECTABLE_H
+#	include <classes/collectable.h>
 #endif
 
 #ifndef HAVE_PTHREADS_CLASS_POOL_H

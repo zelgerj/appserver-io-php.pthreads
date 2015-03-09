@@ -26,6 +26,7 @@
 #ifndef _WIN32
 #include <pthread.h>
 #include <sys/time.h>
+#include <signal.h>
 #else
 #include <pthread.h>
 #include <signal.h>
@@ -49,6 +50,7 @@ extern zend_class_entry *spl_ce_Countable;
 #endif
 
 #include <Zend/zend.h>
+#include <Zend/zend_closures.h>
 #include <Zend/zend_compile.h>
 #include <Zend/zend_exceptions.h>
 #include <Zend/zend_extensions.h>
@@ -92,7 +94,7 @@ ZEND_BEGIN_MODULE_GLOBALS(pthreads)
 	void *pointer;
 	HashTable *resolve;
 	HashTable *resources;
-	HashTable *functions;
+	HashTable *cache;
 ZEND_END_MODULE_GLOBALS(pthreads)
 #	define PTHREADS_ZG(v) TSRMG(pthreads_globals_id, zend_pthreads_globals *, v)
 #   define PTHREADS_PID() PTHREADS_ZG(pid) ? PTHREADS_ZG(pid) : (PTHREADS_ZG(pid)=getpid())
