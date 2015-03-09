@@ -17,9 +17,7 @@
  */
 #ifndef HAVE_PTHREADS_CLASS_THREAD_H
 #define HAVE_PTHREADS_CLASS_THREAD_H
-PHP_METHOD(Thread, start); 
-PHP_METHOD(Thread, wait);
-PHP_METHOD(Thread, notify);
+PHP_METHOD(Thread, start);
 PHP_METHOD(Thread, join);
 PHP_METHOD(Thread, detach);
 PHP_METHOD(Thread, isStarted);
@@ -281,14 +279,14 @@ PHP_METHOD(Thread, kill)
     if (zend_parse_parameters_none() != SUCCESS) {
         return;
     }
-#ifdef PTHREADS_KILL_SIGNAL
+
     {
     	PTHREAD thread = PTHREADS_FETCH;
     	/* allowing sending other signals here is just too dangerous */
     	RETURN_BOOL(
     		pthread_kill(thread->thread, PTHREADS_KILL_SIGNAL)==SUCCESS);
     }
-#endif
+
 } /* }}} */
 
 /* {{{ proto mixed Thread::globally(Callable block [, ... args])
@@ -301,8 +299,7 @@ PHP_METHOD(Thread, globally)
 	zend_uint argc = 0;
 	zval *retval = NULL;
 	zend_bool failed = 0;
-	HashTable *symbols = EG(active_symbol_table);
-	
+
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "f|+", &fci, &fcc, &argv, &argc) != SUCCESS) {
         return;
     }

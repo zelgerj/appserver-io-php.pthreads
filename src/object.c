@@ -71,7 +71,7 @@ static inline void pthreads_address_free(pthreads_address address) {
 
 /* {{{ base ctor/clone/dtor/free */
 static void pthreads_base_ctor(PTHREAD base, zend_class_entry *entry TSRMLS_DC);
-static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC); 
+static void pthreads_base_dtor(PTHREAD base TSRMLS_DC); 
 static void pthreads_base_free(void *arg TSRMLS_DC);
 static void pthreads_base_clone(void *arg, void **pclone TSRMLS_DC); /* }}} */
 
@@ -138,7 +138,7 @@ static inline void pthreads_error_save(pthreads_error error TSRMLS_DC) {
         }
         
         /* deal with file stuff */
-        {
+        if (!PG(last_error_message)) {
             const char *tmp;
             
             tmp = zend_get_executed_filename(TSRMLS_C);
@@ -146,6 +146,10 @@ static inline void pthreads_error_save(pthreads_error error TSRMLS_DC) {
                 error->file = (unsigned char *)strdup(tmp);
             
            error->line = zend_get_executed_lineno(TSRMLS_C);
+        } else {
+            error->file = (unsigned char*) strdup(PG(last_error_file));
+            error->line = PG(last_error_lineno);
+            error->message = strdup(PG(last_error_message));
         }
     }
 } /* }}} */
@@ -154,9 +158,13 @@ static inline void pthreads_error_save(pthreads_error error TSRMLS_DC) {
 static inline pthreads_error pthreads_error_alloc(TSRMLS_D) {
     pthreads_error error = calloc(1, sizeof(*error));
     
+    if (!error)
+        return NULL;
+
     error->clazz = NULL;
     error->method = NULL;
     error->file = NULL;
+    error->message = NULL;
     
     return error;
 } /* }}} */
@@ -172,7 +180,10 @@ static inline void pthreads_error_free(pthreads_error error TSRMLS_DC) {
             
         if (error->file)
             free(error->file);
-            
+        
+        if (error->message)
+            free(error->message);    
+        
         free(
             error);
         
@@ -340,7 +351,7 @@ zend_object_value pthreads_thread_ctor(zend_class_entry *entry TSRMLS_DC) {
 		pthreads_base_ctor(thread, entry TSRMLS_CC);
 		thread->handle = zend_objects_store_put(
 			thread,
-			(zend_objects_store_dtor_t) pthreads_base_dtor,
+			(zend_objects_store_dtor_t) zend_objects_destroy_object,
 			(zend_objects_free_object_storage_t) pthreads_base_free,
 			(zend_objects_store_clone_t) pthreads_base_clone TSRMLS_CC
 		);
@@ -359,7 +370,7 @@ zend_object_value pthreads_worker_ctor(zend_class_entry *entry TSRMLS_DC) {
 		pthreads_base_ctor(worker, entry TSRMLS_CC);
 		worker->handle = zend_objects_store_put(
 			worker,
-			(zend_objects_store_dtor_t) pthreads_base_dtor,
+			(zend_objects_store_dtor_t) zend_objects_destroy_object,
 			(zend_objects_free_object_storage_t) pthreads_base_free,
 			(zend_objects_store_clone_t) pthreads_base_clone TSRMLS_CC
 		);
@@ -378,7 +389,7 @@ zend_object_value pthreads_threaded_ctor(zend_class_entry *entry TSRMLS_DC) {
 		pthreads_base_ctor(threaded, entry TSRMLS_CC);
 		threaded->handle = zend_objects_store_put(
 			threaded,
-			(zend_objects_store_dtor_t) pthreads_base_dtor,
+			(zend_objects_store_dtor_t) zend_objects_destroy_object,
 			(zend_objects_free_object_storage_t) pthreads_base_free,
 			(zend_objects_store_clone_t) pthreads_base_clone TSRMLS_CC
 		);
@@ -411,14 +422,14 @@ static int pthreads_connect(PTHREAD source, PTHREAD destination TSRMLS_DC) {
 			pthreads_synchro_free(destination->synchro TSRMLS_CC);
 			pthreads_address_free(destination->address);
             pthreads_error_free(destination->error TSRMLS_CC);
-            
+
 			if (PTHREADS_IS_WORKER(destination)) {
 				zend_hash_destroy(
 				    &destination->stack->objects
 				);
 				free(destination->stack);
 			}
-			
+
 			destination->scope |= PTHREADS_SCOPE_CONNECTION;
 			
 			return pthreads_connect
@@ -475,8 +486,7 @@ static inline void pthreads_base_init(PTHREAD base TSRMLS_DC) {
 				(char**)&class_name,
 				(char**)&property_name);
 			property_name_len = strlen(property_name);
-			pthreads_store_write(base->store, property_name, property_name_len, property TSRMLS_CC);
-			
+			pthreads_store_write(base->store, (char*) property_name, property_name_len, property TSRMLS_CC);
 		}
 	}
 #else
@@ -516,7 +526,6 @@ static inline void pthreads_base_init(PTHREAD base TSRMLS_DC) {
 				&EG(uninitialized_zval_ptr) TSRMLS_CC);
 	}
 #endif
-
 	efree((char*)class_free);	
 } /* }}} */
 
@@ -551,31 +560,29 @@ static void pthreads_base_ctor(PTHREAD base, zend_class_entry *entry TSRMLS_DC) 
 			base->modifiers = pthreads_modifiers_alloc(TSRMLS_C);
 			base->store = pthreads_store_alloc(TSRMLS_C);
             base->error = pthreads_error_alloc(TSRMLS_C);
-			
+
 			pthreads_modifiers_init(base->modifiers, entry TSRMLS_CC);
 			if (PTHREADS_IS_WORKER(base)) {
 				base->stack = (pthreads_stack) calloc(1, sizeof(*base->stack));
 				if (base->stack) {
-				    zend_hash_init(
-				        &base->stack->objects, 8, NULL, NULL, 1);
-                    base->stack->position = 0L;
+					zend_hash_init(
+						&base->stack->objects, 8, NULL, NULL, 1);
+                    			base->stack->position = 0L;
 				}	
 			}
-			
+
 			pthreads_base_init(base TSRMLS_CC);
 		}
 	}
 } /* }}} */
 
 /* {{{ pthreads base destructor */
-static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
-	PTHREAD base = (PTHREAD) arg;
-
+static void pthreads_base_dtor(PTHREAD base TSRMLS_DC) {
 	if (PTHREADS_IS_NOT_CONNECTION(base) && PTHREADS_IS_NOT_DETACHED(base)) {
-	     
-	     assert(base->cls == TSRMLS_C);
-	     
-	     if (PTHREADS_IS_THREAD(base)||PTHREADS_IS_WORKER(base)) {
+
+	    assert(base->cls == TSRMLS_C);
+
+	    if (PTHREADS_IS_THREAD(base)||PTHREADS_IS_WORKER(base)) {
 	        pthread_t *pthread = &base->thread;
 	        if (pthread) {
 		        pthreads_join(base TSRMLS_CC);
@@ -589,7 +596,7 @@ static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
 	    pthreads_synchro_free(base->synchro TSRMLS_CC);
 	    pthreads_address_free(base->address);
         pthreads_error_free(base->error TSRMLS_CC);
-        
+
 	    if (PTHREADS_IS_WORKER(base)) {
 		    zend_hash_destroy(
 			    &base->stack->objects
@@ -597,7 +604,7 @@ static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
 		    free(base->stack);
 	    }
 	}
-    
+
 #if PHP_VERSION_ID > 50399
 	{
 		zend_object *object = &base->std;
@@ -626,6 +633,8 @@ static void pthreads_base_dtor(void *arg, zend_object_handle handle TSRMLS_DC) {
 static void pthreads_base_free(void *arg TSRMLS_DC) {
 	PTHREAD base = (PTHREAD) arg;
 	if (base) {
+	    pthreads_base_dtor(base TSRMLS_CC);
+
 	    if (PTHREADS_IS_NOT_DETACHED(base)) {
 	    	if (pthreads_globals_object_delete(base TSRMLS_CC)) {
 	    		base = NULL;
@@ -733,6 +742,23 @@ int pthreads_internal_serialize(zval *object, unsigned char **buffer, zend_uint 
 	return FAILURE;
 } /* }}} */
 
+/* {{{ */
+static int pthreads_cache_get(PTHREAD address, zval *handle TSRMLS_DC) {
+    zval *cached;
+    if (zend_hash_index_find(PTHREADS_ZG(cache), (zend_ulong) address, (void**)&cached) == SUCCESS) {
+        ZVAL_ZVAL(handle, cached, 1, 0);
+        return SUCCESS;
+    }
+    return FAILURE;
+}
+
+static void pthreads_cache_set(PTHREAD address, zval *cache TSRMLS_DC) {
+    zval *cached;
+    if (zend_hash_index_update(PTHREADS_ZG(cache), (zend_ulong) address, (void**) cache, sizeof(zval), (void**)&cached) == SUCCESS) {
+        zval_copy_ctor(cache);
+    }
+} /* }}} */
+
 /* {{{ connects to an instance of a threaded object */
 int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const unsigned char *buffer, zend_uint blength, zend_unserialize_data *data TSRMLS_DC) {
 	PTHREAD address = NULL;
@@ -758,12 +784,17 @@ int pthreads_internal_unserialize(zval **object, zend_class_entry *ce, const uns
             		return SUCCESS;
             	}
             	
+            	/* try to fetch object from cache */
+            	if (pthreads_cache_get(address, *object TSRMLS_CC) == SUCCESS) {
+            		return SUCCESS;
+            	}
+
             	/* else initialize and connect to the original object */
             	if (object_init_ex(*object, ce) == SUCCESS) {
 					pthreads_connect(
-		                	address, 
+		                	address,
 		                	PTHREADS_FETCH_FROM(*object) TSRMLS_CC);
-
+                    pthreads_cache_set(address, *object TSRMLS_CC);
 		            return SUCCESS;
 				}
             } else {
@@ -811,7 +842,6 @@ static inline void pthreads_kill_handler(int signo) /* {{{ */
 static void * pthreads_routine(void *arg) {
 	/* passed the object as argument */
 	PTHREAD thread = (PTHREAD) arg;
-	char nothing[] = {0,};
 	
 #ifdef PTHREADS_KILL_SIGNAL
 	/* installed to support a graceful-ish kill function */
@@ -828,18 +858,18 @@ static void * pthreads_routine(void *arg) {
 		
 		/* $this original pointer */
 		zval *this_ptr = NULL, 
-			 *this = NULL;
-
+			 *this = NULL;		
+		
 		/* init threadsafe manager local storage */
 		void ***tsrm_ls = NULL;
-		
+
 		/* executor globals */
 		zend_executor_globals *ZEG = NULL;
 
 		/**
-		 * Startup Block Begin
-		 **/
-		
+		* Startup Block Begin
+		**/
+
 #ifdef PTHREADS_PEDANTIC
 		/* acquire a global lock */
 		pthreads_globals_lock(&glocked TSRMLS_CC);
@@ -880,7 +910,7 @@ static void * pthreads_routine(void *arg) {
 
 		/* request startup */
 		php_request_startup(TSRMLS_C);
-		
+
 		if (!(thread->options & PTHREADS_ALLOW_HEADERS)) {
 			/* do not send headers again */
 			SG(headers_sent)=1;
@@ -896,23 +926,23 @@ static void * pthreads_routine(void *arg) {
 #endif
 
 		/**
-		 * Startup Block End
-		 **/
+		* Startup Block End
+		**/
 		ZEG = PTHREADS_EG_ALL(TSRMLS_C);
 		
-		/**
-		 * Allocate $this
-		 **/
+		/*
+		* Allocate $this
+		*/
 		ALLOC_INIT_ZVAL(this);
 		
-		/**
-		 * Assign $this
-		 */
+		/*
+		* Assign $this
+		*/
 		this_ptr = this;
 		
 		/**
-		 * Thread Block Begin
-		 **/
+		* Thread Block Begin
+		**/
 		zend_first_try {
 			/*
 			* Set worker indicator
@@ -949,11 +979,51 @@ static void * pthreads_routine(void *arg) {
 					    
 						/* graceful fatalities */
 						zend_try {
-						    /* ::run */
-							zend_call_method(
-								&ZEG->This, ZEG->scope, NULL, 
-								ZEND_STRL("run"), 
-								&zresult, 0, NULL, NULL TSRMLS_CC);
+							zend_function *fun;
+							if (zend_hash_find(&ZEG->scope->function_table, "run", sizeof("run"), (void**)&fun) == SUCCESS) {
+								if (fun->type == ZEND_USER_FUNCTION) {
+									EG(active_op_array) = (zend_op_array*) fun;
+									EG(scope) = Z_OBJCE_P(ZEG->This);
+									EG(called_scope) = EG(scope);
+									EG(return_value_ptr_ptr) = &zresult;
+									EG(in_execution) = 1;
+									
+									zend_execute
+										((zend_op_array*) fun TSRMLS_CC);
+									
+									if (EG(exception)) {
+										if (EG(user_exception_handler)) {
+											zend_fcall_info fci;
+											zend_fcall_info_cache fcc;
+											zval exception = *EG(exception);
+											zval *ex = &exception;
+											zval *izresult = NULL;
+											
+											zval_copy_ctor(&exception);
+											
+											EG(exception) = NULL;
+												
+											if (zend_fcall_info_init(
+													EG(user_exception_handler), 
+													IS_CALLABLE_CHECK_SILENT, 
+													&fci, &fcc, NULL, NULL TSRMLS_CC) == SUCCESS) {
+												fci.retval_ptr_ptr = &izresult;
+												zend_fcall_info_argn(&fci TSRMLS_CC, 1, &ex);
+												zend_try {
+													zend_call_function(&fci, &fcc TSRMLS_CC);
+												} zend_end_try();
+												zend_fcall_info_args_clear(&fci, 1);
+											}
+											
+											if (izresult) {
+												zval_ptr_dtor(&izresult);
+											}
+											
+											zval_dtor(&exception);
+										}
+									}
+								}
+							}
 						} zend_catch {
 						    /* catches fatal errors and uncaught exceptions */
 							terminated = 1;
@@ -993,19 +1063,19 @@ static void * pthreads_routine(void *arg) {
 		} zend_end_try();
 		
 		/**
-		 * Thread Block End
-		 **/
+		* Thread Block End
+		**/
 		
 	    /*
-		 * Free original reference to $this
-		 */
+		* Free original reference to $this
+		*/
 		if (!BG(user_shutdown_function_names)) {
 			zval_ptr_dtor(&this);
 		}
 		
 		/**
-		 * Shutdown Block Begin
-		 **/
+		* Shutdown Block Begin
+		**/
 		PG(report_memleaks) = 0;
 		
 #ifdef PTHREADS_PEDANTIC
@@ -1014,7 +1084,7 @@ static void * pthreads_routine(void *arg) {
 #endif
 		/* shutdown request */
 	    php_request_shutdown(TSRMLS_C);
-	    
+
 	    /* free interpreter */
 		tsrm_free_interpreter_context(tsrm_ls);
 
@@ -1024,8 +1094,8 @@ static void * pthreads_routine(void *arg) {
 #endif
 
 		/**
-		 * Shutdown Block End
-	   	 **/
+		* Shutdown Block End
+		**/
 	}
 
 	pthread_exit(NULL);
