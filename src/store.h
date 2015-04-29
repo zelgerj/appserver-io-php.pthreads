@@ -85,4 +85,7 @@ void pthreads_store_zval_reset(pthreads_store store TSRMLS_DC); /* }}} */
 /* {{{ free buffers */
 void pthreads_store_free(pthreads_store store TSRMLS_DC); /* }}} */
 
+/* {{{ separate a zval using internals */
+int pthreads_store_separate_from(zval * pzval, zval **separated, zend_bool allocate, zend_bool complex, void ***parent TSRMLS_DC); /* }}} */
+
 #endif
