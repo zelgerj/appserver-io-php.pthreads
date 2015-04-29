@@ -114,6 +114,29 @@ zend_bool pthreads_store_unlock(zval *this_ptr TSRMLS_DC) {
 		return 0;
 } /* }}} */
 
+/* {{{ seperate a zval using internals */
+int pthreads_store_separate_from(zval * pzval, zval **separated, zend_bool allocate, zend_bool complex, void ***parent TSRMLS_DC) {
+	int result = FAILURE;
+	pthreads_storage storage;
+
+	if (allocate) {
+		MAKE_STD_ZVAL(*separated);
+	}
+
+	if (pzval) {
+        pthreads_store_create(&storage, pzval, complex, parent);
+
+		result = pthreads_store_convert(
+		    &storage, *separated TSRMLS_CC);
+
+		if (result == SUCCESS)
+			pthreads_store_storage_dtor(&storage);
+	    else Z_TYPE_PP(separated) = IS_NULL;
+	} else Z_TYPE_PP(separated) = IS_NULL;
+
+	return result;
+} /* }}} */
+
 /* {{{ delete a value from the store */
 int pthreads_store_delete(pthreads_store store, char *key, int keyl TSRMLS_DC) {
 	int result = FAILURE;
