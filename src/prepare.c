@@ -268,12 +268,13 @@ while(0)
 
 				if (zend_hash_get_current_key_ex(&candidate->default_static_members, &n, &l, &i, 0, &position)) {
 					switch (Z_TYPE_PP(property)) {
-					    case IS_ARRAY:
+
+					    /* case IS_ARRAY: */
 					    case IS_OBJECT:
 					        zend_hash_update(&prepared->default_static_members, n, l, (void**) &EG(uninitialized_zval_ptr), sizeof(zval*), NULL);
 					        Z_ADDREF_P(EG(uninitialized_zval_ptr));
 					    break;
-					    
+
 					    default: if (pthreads_store_separate(*property, &separated, 1, 0 TSRMLS_CC)==SUCCESS) {
 						    zend_hash_update(&prepared->default_static_members, n, l, (void**) &separated, sizeof(zval*), NULL);
 					    }
@@ -324,13 +325,14 @@ while(0)
 				if (candidate->default_static_members_table[i]) {
 					/* we use real separation for a reason */
 					switch (Z_TYPE_P(candidate->default_static_members_table[i])) {
-					    case IS_OBJECT:
-					    case IS_ARRAY:
+
+					   case IS_OBJECT:
+					   /*  case IS_ARRAY: */
 					       prepared->default_static_members_table[i] =  
 					            EG(uninitialized_zval_ptr);
 					       Z_ADDREF_P(EG(uninitialized_zval_ptr));
 					    break;
-					    
+
 					    default: {
 					        prepared->default_static_members_table[i] = (zval*) emalloc(sizeof(zval));
 					        

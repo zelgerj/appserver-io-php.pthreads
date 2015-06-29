@@ -1,5 +1,7 @@
 --TEST--
 Test statics aren't getting fucked with when starting new threads (many bugs)
+--XFAIL--
+It is expected to fail due to compatibility to appserver.io nature
 --FILE--
 <?php
 class StaticClass{

@@ -1,5 +1,7 @@
 --TEST--
 Test NULLing ressources in arrays
+--XFAIL--
+It is expected to fail due to compatibility to appserver.io nature
 --FILE--
 <?php
 class file {

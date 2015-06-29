@@ -860,21 +860,26 @@ static void * pthreads_routine(void *arg) {
 		zval *this_ptr = NULL, 
 			 *this = NULL;		
 		
+		/* init threadsafe manager local storage */
+		void ***tsrm_ls = NULL;
+
 		/* executor globals */
 		zend_executor_globals *ZEG = NULL;
 
 		/**
 		* Startup Block Begin
 		**/
-		TSRMLS_FETCH();
-		
-		/* set thread local storage */
-		thread->tls = TSRMLS_C;
-		
+
 #ifdef PTHREADS_PEDANTIC
 		/* acquire a global lock */
 		pthreads_globals_lock(&glocked TSRMLS_CC);
 #endif
+
+		/* create new context */
+		thread->tls = tsrm_ls = tsrm_new_interpreter_context();
+
+		/* set interpreter context */
+		tsrm_set_interpreter_context(tsrm_ls);
 
 		/* set thread id for this object */
 		thread->tid = pthreads_self();
@@ -900,12 +905,12 @@ static void * pthreads_routine(void *arg) {
 				PHP_INI_USER, PHP_INI_STAGE_ACTIVATE);
 		}
 
+		/* fix php-fpm compatibility */
+		SG(sapi_started) = 0;
+
 		/* request startup */
 		php_request_startup(TSRMLS_C);
 
-		/* fix php-fpm compatibility */
-		SG(sapi_started) = 0;
-		
 		if (!(thread->options & PTHREADS_ALLOW_HEADERS)) {
 			/* do not send headers again */
 			SG(headers_sent)=1;
@@ -1079,7 +1084,10 @@ static void * pthreads_routine(void *arg) {
 #endif
 		/* shutdown request */
 	    php_request_shutdown(TSRMLS_C);
-	    
+
+	    /* free interpreter */
+		tsrm_free_interpreter_context(tsrm_ls);
+
 #ifdef PTHREADS_PEDANTIC
 		/* release global lock */
 		pthreads_globals_unlock(glocked TSRMLS_CC);
