@@ -1,7 +1,7 @@
 --TEST--
-Test global constants
+Test global require
 --DESCRIPTION--
-This test verifies that global constants are inherited
+This test verifies that globals inheritation when using require in run method works correctly.
 --FILE--
 <?php
 class Server extends Thread {
